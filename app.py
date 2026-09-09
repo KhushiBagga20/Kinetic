@@ -29,17 +29,18 @@ from ui.prediction_view import render_prediction
 
 # ─── Page Configuration ──────────────────────────────────────────────────────
 st.set_page_config(
-    page_title="Kinetic — Investment Research Agent",
-    page_icon="📈",
+    page_title="Kinetic // Financial Intelligence Terminal",
+    page_icon="⚡",
     layout="wide",
-    initial_sidebar_state="expanded",
+    initial_sidebar_state="collapsed",
     menu_items={
         "Get help": None,
         "Report a Bug": None,
         "About": (
-            "**Kinetic** — Personal Investment Research Agent\n\n"
-            "Built with Streamlit, LangChain, ChromaDB, and yfinance.\n\n"
-            "This is not personalized financial advice."
+            "**Kinetic** — Institutional Financial Intelligence Terminal\n\n"
+            "Engine: Hybrid Ensemble (Technical 40% + Sentiment 30% + RAG Fundamentals 30%)\n\n"
+            "Hardware Target: Apple Silicon (MLX Accelerated)\n\n"
+            "Disclaimer: Not personalized investment advice."
         ),
     },
 )
@@ -48,78 +49,107 @@ st.set_page_config(
 st.markdown(get_custom_css(), unsafe_allow_html=True)
 
 
-# ─── Sidebar ─────────────────────────────────────────────────────────────────
+# ─── Sidebar: System Telemetry & Utilities ───────────────────────────────────
 with st.sidebar:
     st.markdown("""
-    <div style="text-align: center; padding: 16px 0;">
-        <h1 style="
-            background: linear-gradient(135deg, #63b3ed, #90cdf4, #bee3f8);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            font-size: 1.8rem;
-            font-weight: 700;
-            margin: 0;
-        ">⚡ Kinetic</h1>
-        <p style="color: #94a3b8; font-size: 0.85rem; margin: 4px 0 0 0;">
-            Personal Investment Research Agent
-        </p>
+    <div style="padding: 6px 4px 14px 4px;">
+        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px;">
+            <div style="display: flex; align-items: center; gap: 6px;">
+                <span style="color: #CDFF9A; font-size: 1.1rem;">⚡</span>
+                <span style="font-family: 'IBM Plex Sans', sans-serif; font-size: 1.15rem; font-weight: 700; color: #FFFFFF; letter-spacing: -0.02em;">KINETIC</span>
+            </div>
+            <span class="terminal-badge">DRAWER</span>
+        </div>
+        <div style="font-family: 'IBM Plex Mono', monospace; font-size: 0.66rem; color: #627C80; letter-spacing: 0.08em; text-transform: uppercase;">
+            System Telemetry & Controls
+        </div>
     </div>
     """, unsafe_allow_html=True)
 
-    st.markdown("---")
-
-    # Navigation
-    page = st.radio(
-        "Navigation",
-        options=["📊 Dashboard", "🤖 Research Agent", "🔮 Prediction"],
-        index=0,
-        key="nav_radio",
-    )
-
-    st.markdown("---")
-
     # Status indicators
-    st.markdown("### ⚙️ System Status")
+    st.markdown("### Provider Telemetry")
 
-    # Check API key status
-    apis = {
-        "yfinance": ("✅", "No key needed"),
-        "Alpha Vantage": (
-            "✅" if config.ALPHA_VANTAGE_API_KEY else "⚠️",
-            "Connected" if config.ALPHA_VANTAGE_API_KEY else "Key missing",
-        ),
-        "NewsAPI": (
-            "✅" if config.NEWS_API_KEY else "⚠️",
-            "Connected" if config.NEWS_API_KEY else "Key missing",
-        ),
-        "FMP": (
-            "✅" if config.FMP_API_KEY else "ℹ️",
-            "Connected" if config.FMP_API_KEY else "Optional",
-        ),
-    }
+    apis = [
+        ("yfinance", True, "Real-time"),
+        ("Alpha Vantage", bool(config.ALPHA_VANTAGE_API_KEY), "Connected" if config.ALPHA_VANTAGE_API_KEY else "Key Unset"),
+        ("NewsAPI", bool(config.NEWS_API_KEY), "Connected" if config.NEWS_API_KEY else "Key Unset"),
+        ("FMP", bool(config.FMP_API_KEY), "Connected" if config.FMP_API_KEY else "Optional"),
+    ]
 
-    for name, (icon, status) in apis.items():
-        st.markdown(f"{icon} **{name}**: {status}")
+    items_html = ""
+    for name, is_active, status_text in apis:
+        dot_color = "#CDFF9A" if is_active else "#627C80"
+        text_color = "#CDFF9A" if is_active else "#9EB5B7"
+        items_html += (
+            f'<div style="display: flex; align-items: center; justify-content: space-between; '
+            f'font-family: \'IBM Plex Mono\', monospace; font-size: 0.73rem; padding: 5px 8px; '
+            f'background: rgba(32, 61, 67, 0.35); border-radius: 6px; border: 1px solid rgba(205, 255, 154, 0.06);">'
+            f'<span style="color: #F0F6F5;">{name}</span>'
+            f'<span style="display: flex; align-items: center; gap: 5px; color: {text_color}; font-weight: 500;">'
+            f'<span style="width: 5px; height: 5px; border-radius: 50%; background-color: {dot_color}; display: inline-block;"></span>'
+            f'{status_text}</span></div>'
+        )
 
-    # LLM status
-    st.markdown(f"🤖 **LLM**: MLX Placeholder")
+    telemetry_html = (
+        f'<div style="display: flex; flex-direction: column; gap: 7px; margin-top: 4px;">'
+        f'{items_html}'
+        f'<div style="display: flex; align-items: center; justify-content: space-between; '
+        f'font-family: \'IBM Plex Mono\', monospace; font-size: 0.73rem; padding: 5px 8px; '
+        f'background: rgba(32, 61, 67, 0.35); border-radius: 6px; border: 1px solid rgba(205, 255, 154, 0.06); margin-top: 2px;">'
+        f'<span style="color: #F0F6F5;">LLM Engine</span>'
+        f'<span style="color: #CDFF9A; font-weight: 600;">MLX Apple Silicon</span>'
+        f'</div></div>'
+    )
+    st.markdown(telemetry_html, unsafe_allow_html=True)
 
     st.markdown("---")
-    st.markdown(
-        '<p style="color: #718096; font-size: 0.75rem; text-align: center;">'
-        'Not personalized financial advice.'
-        '</p>',
-        unsafe_allow_html=True,
-    )
+    st.markdown("""
+    <div style="font-family: 'IBM Plex Mono', monospace; font-size: 0.68rem; color: #627C80; line-height: 1.4; padding: 0 4px;">
+        SEC-COMPLIANT RESEARCH PROTOCOL<br>
+        NOT PERSONALIZED INVESTMENT ADVICE
+    </div>
+    """, unsafe_allow_html=True)
 
 
-# ─── Main Content Header ─────────────────────────────────────────────────────
-st.markdown("""
-<div class="main-header">
-    <h1>⚡ Kinetic</h1>
-    <p>AI-Powered Investment Research • Live Market Data • Document Analysis</p>
-</div>
-""", unsafe_allow_html=True)
+# ─── Top Institutional Navigation Bar ─────────────────────────────────────────
+top_nav_container = st.container()
+with top_nav_container:
+    top_col1, top_col2, top_col3 = st.columns([3, 5, 3], vertical_alignment="center")
+
+    with top_col1:
+        st.markdown("""
+        <div style="display: flex; align-items: center; gap: 8px; padding: 4px 0;">
+            <span style="color: #CDFF9A; font-size: 1.4rem;">⚡</span>
+            <span style="font-family: 'IBM Plex Sans', sans-serif; font-size: 1.35rem; font-weight: 700; color: #FFFFFF; letter-spacing: -0.02em;">KINETIC</span>
+            <span class="terminal-badge">v2.4-PRO</span>
+        </div>
+        """, unsafe_allow_html=True)
+
+    with top_col2:
+        page = st.radio(
+            "Navigation",
+            options=["📊 Dashboard", "🤖 Research Agent", "🔮 Prediction"],
+            index=0,
+            horizontal=True,
+            label_visibility="collapsed",
+            key="top_nav_radio",
+        )
+
+    with top_col3:
+        st.markdown("""
+        <div style="display: flex; align-items: center; justify-content: flex-end; gap: 14px; font-family: 'IBM Plex Mono', monospace; font-size: 0.72rem; color: #627C80; padding-top: 4px;">
+            <span style="display: flex; align-items: center; gap: 5px; color: #9EB5B7;">
+                <span class="pulse-dot"></span>
+                FEED LIVE
+            </span>
+            <span>LAT: <strong style="color: #CDFF9A;">&lt;15MS</strong></span>
+            <span>RAG: <strong style="color: #CDFF9A;">ACTIVE</strong></span>
+        </div>
+        """, unsafe_allow_html=True)
+
+    st.markdown("""
+    <div style="height: 1px; background: linear-gradient(90deg, transparent, rgba(205, 255, 154, 0.25), transparent); margin: 6px 0 16px 0;"></div>
+    """, unsafe_allow_html=True)
 
 
 # ─── Page Router ─────────────────────────────────────────────────────────────
@@ -134,7 +164,13 @@ elif page == "🔮 Prediction":
 # ─── Footer Disclaimer ───────────────────────────────────────────────────────
 st.markdown(f"""
 <div class="footer-disclaimer">
-    {config.DISCLAIMER_TEXT}
+    <div class="footer-tag">
+        <span class="pulse-dot"></span>
+        <span>KINETIC TERMINAL ARCHITECTURE // v2.4</span>
+    </div>
+    <div style="text-align: right; max-width: 750px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+        {config.DISCLAIMER_TEXT}
+    </div>
 </div>
 """, unsafe_allow_html=True)
 

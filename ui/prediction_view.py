@@ -1,84 +1,105 @@
 """
-Prediction View — market prediction reports with technical analysis charts.
+Prediction View — Quantitative Multi-Signal Ensemble Prediction Engine.
 
 Features:
-    - Ticker-based prediction report generation
-    - Signal badges (BULLISH/BEARISH/NEUTRAL)
-    - Technical indicator breakdown
-    - Sentiment analysis display
-    - Prominent risk disclaimer
+    - Multi-signal algorithmic prediction (Technical 40% + Sentiment 30% + Fundamental 30%)
+    - Institutional signal cards (BULLISH/BEARISH/NEUTRAL) with confidence and risk meters
+    - Technical indicator breakdown matrix with 3-panel Plotly charting
+    - News sentiment analysis with compound scoring
+    - Document-backed fundamental verification
+    - Institutional risk assessment and SEC-compliant disclaimer
 """
 
+from textwrap import dedent
 import streamlit as st
 import plotly.graph_objects as go
-import plotly.express as px
 from plotly.subplots import make_subplots
 import pandas as pd
 
 from src.prediction.ensemble import get_predictor
 from src.prediction.risk import format_prediction_report, assess_risk
 from src.tools.stock_lookup import get_historical_data
-
 import config
 
 
+def _md(html: str):
+    """Render HTML cleanly without CommonMark indentation bugs."""
+    st.markdown(dedent(html), unsafe_allow_html=True)
+
+
 def render_prediction():
-    """Render the market prediction tab."""
+    """Render the quantitative market prediction tab."""
 
-    # ── Header ────────────────────────────────────────────────────────
-    st.markdown("""
-    <div class="glass-card">
-        <h2 style="color: #63b3ed; margin: 0;">🔮 Market Prediction Engine</h2>
-        <p style="color: #94a3b8; margin: 4px 0 0 0;">
-            Multi-signal ensemble analysis combining technical indicators,
-            news sentiment, and document-based fundamentals.
-        </p>
+    # ── Section Header ────────────────────────────────────────────────
+    _md("""
+    <div class="terminal-panel-header" style="margin-top: 4px;">
+        <div class="terminal-panel-title">
+            <span style="color: #CDFF9A;">●</span>
+            <span>Quantitative Prediction Engine // Multi-Signal Ensemble</span>
+        </div>
+        <div class="terminal-panel-meta">
+            WEIGHTS: TECH (40%) • SENTIMENT (30%) • FUNDAMENTALS (30%)
+        </div>
     </div>
-    """, unsafe_allow_html=True)
+    """)
 
-    # ── Disclaimer (always visible at top) ────────────────────────────
-    st.markdown(f"""
+    # ── Disclaimer Banner ─────────────────────────────────────────────
+    _md(f"""
     <div class="disclaimer-banner">
-        {config.DISCLAIMER_TEXT}
+        <div>
+            <strong>CRITICAL RISK NOTICE:</strong> {config.DISCLAIMER_TEXT}
+        </div>
     </div>
-    """, unsafe_allow_html=True)
+    """)
 
-    # ── Ticker Input ──────────────────────────────────────────────────
-    col1, col2 = st.columns([3, 1])
+    # ── Ticker Command Bar ────────────────────────────────────
+    col1, col2 = st.columns([4, 1])
     with col1:
         ticker = st.text_input(
-            "Enter stock ticker",
+            "Target Equity Symbol",
             value="AAPL",
-            placeholder="e.g., AAPL, GOOGL, RELIANCE.NS",
+            placeholder="e.g. AAPL, NVDA, TSLA, MSFT",
             key="prediction_ticker",
+            label_visibility="collapsed",
         )
     with col2:
-        st.write("")
-        st.write("")
-        run_prediction = st.button("🚀 Run Prediction", key="run_pred_btn")
+        run_prediction = st.button("⚡ EXECUTE MODEL", key="run_pred_btn")
+
+    # Quick Ticker Shortcuts
+    _md("""
+    <div style="display: flex; align-items: center; gap: 8px; margin: -6px 0 16px 0; font-family: 'IBM Plex Mono', monospace; font-size: 0.72rem; color: #627C80;">
+        <span>SUGGESTED TARGETS:</span>
+        <span style="color: #9EB5B7;">AAPL</span> •
+        <span style="color: #9EB5B7;">NVDA</span> •
+        <span style="color: #9EB5B7;">MSFT</span> •
+        <span style="color: #9EB5B7;">TSLA</span>
+    </div>
+    """)
 
     if not ticker:
-        st.info("Enter a stock ticker above to generate a prediction report.")
+        st.info("Enter an equity ticker to execute the ensemble model.")
         return
 
     ticker = ticker.strip().upper()
 
     if run_prediction or f"pred_report_{ticker}" in st.session_state:
-        # Generate or retrieve cached prediction
         if run_prediction:
-            with st.spinner(f"🔍 Analyzing {ticker}... This may take a moment."):
+            with st.spinner(f"Running quantitative synthesis for {ticker}..."):
                 predictor = get_predictor()
                 report = predictor.predict(ticker)
                 st.session_state[f"pred_report_{ticker}"] = report
         else:
             report = st.session_state[f"pred_report_{ticker}"]
 
-        # ── Signal Display ────────────────────────────────────────────
+        # ── Primary Signal & Metric Dashboard ─────────────────────────
         _render_signal_header(report)
 
-        # ── Detailed Breakdown ────────────────────────────────────────
+        # ── Analytical Deep Dive Tabs ─────────────────────────────────
         tab_overview, tab_technical, tab_sentiment, tab_fundamental = st.tabs([
-            "📋 Overview", "📊 Technical", "📰 Sentiment", "📄 Fundamental"
+            "📋 ENSEMBLE SYNTHESIS",
+            "📊 TECHNICAL MATRIX",
+            "📰 SENTIMENT INTELLIGENCE",
+            "📄 FUNDAMENTAL AUDIT",
         ])
 
         with tab_overview:
@@ -93,116 +114,179 @@ def render_prediction():
         with tab_fundamental:
             _render_fundamental_details(report)
 
-        # ── Full Text Report ──────────────────────────────────────────
-        with st.expander("📄 Full Text Report"):
+        # ── Full Monospace Report Expander ────────────────────────────
+        st.markdown("<div style='height: 12px;'></div>", unsafe_allow_html=True)
+        with st.expander("📄 VIEW INSTITUTIONAL RAW TELEMETRY REPORT"):
             st.code(format_prediction_report(report), language="text")
 
-        # ── Bottom Disclaimer ─────────────────────────────────────────
-        st.markdown(f"""
-        <div class="disclaimer-banner">
-            {config.DISCLAIMER_TEXT}
+        # ── Bottom Compliance Banner ──────────────────────────────────
+        _md("""
+        <div class="disclaimer-banner" style="margin-top: 24px;">
+            <div>
+                <strong>COMPLIANCE MEMORANDUM:</strong> Algorithmic market forecasts are probabilistic models and carry intrinsic financial variance. Past indicator correlations do not guarantee future performance.
+            </div>
         </div>
-        """, unsafe_allow_html=True)
+        """)
 
 
 def _render_signal_header(report: dict):
-    """Render the main signal header with badge."""
-    signal = report.get("signal", "NEUTRAL")
+    """Render the primary signal telemetry header with institutional meters."""
+    signal = report.get("signal", "NEUTRAL").upper()
     confidence = report.get("confidence", 0)
-    risk_level = report.get("risk_level", "UNKNOWN")
+    risk_level = report.get("risk_level", "UNKNOWN").upper()
     ticker = report.get("ticker", "N/A")
 
-    # Signal badge class
-    if "BULLISH" in signal:
-        badge_class = "signal-bullish"
-    elif "BEARISH" in signal:
-        badge_class = "signal-bearish"
+    is_bullish = "BULLISH" in signal
+    is_bearish = "BEARISH" in signal
+
+    if is_bullish:
+        signal_color = "#CDFF9A"
+        signal_bg = "rgba(205, 255, 154, 0.12)"
+        signal_border = "#CDFF9A"
+        signal_dot = "▲"
+    elif is_bearish:
+        signal_color = "#DF4100"
+        signal_bg = "rgba(223, 65, 0, 0.12)"
+        signal_border = "#DF4100"
+        signal_dot = "▼"
     else:
-        badge_class = "signal-neutral"
+        signal_color = "#9EB5B7"
+        signal_bg = "rgba(158, 181, 183, 0.12)"
+        signal_border = "rgba(158, 181, 183, 0.4)"
+        signal_dot = "■"
+
+    risk_color = {
+        "LOW": "#CDFF9A",
+        "MEDIUM": "#9EB5B7",
+        "HIGH": "#DF4100",
+    }.get(risk_level, "#9EB5B7")
 
     col1, col2, col3 = st.columns(3)
 
     with col1:
-        st.markdown(f"""
-        <div class="metric-card">
-            <div class="metric-label">Signal</div>
-            <div style="margin: 12px 0;">
-                <span class="{badge_class}">{signal}</span>
+        _md(f"""
+        <div class="metric-card" style="border-top: 3px solid {signal_color};">
+            <div class="metric-label">Ensemble Output Signal</div>
+            <div style="margin: 10px 0;">
+                <span class="signal-pill" style="background: {signal_bg}; border: 1px solid {signal_border}; color: {signal_color};">
+                    <span>{signal_dot}</span>
+                    <span>{signal}</span>
+                </span>
             </div>
+            <div style="font-family: 'IBM Plex Mono', monospace; font-size: 0.70rem; color: #627C80;">TARGET: {ticker} // HORIZON: 5-30 DAYS</div>
         </div>
-        """, unsafe_allow_html=True)
+        """)
 
     with col2:
-        st.markdown(f"""
-        <div class="metric-card">
-            <div class="metric-label">Confidence</div>
-            <div class="metric-value">{confidence:.1f}%</div>
+        _md(f"""
+        <div class="metric-card" style="border-top: 3px solid #CDFF9A;">
+            <div class="metric-label">Model Confidence Rating</div>
+            <div class="metric-value" style="color: #CDFF9A;">{confidence:.1f}%</div>
+            <div style="background: rgba(205, 255, 154, 0.1); border-radius: 4px; height: 4px; width: 100%; margin-top: 8px; overflow: hidden;">
+                <div style="background: #CDFF9A; height: 100%; width: {min(max(confidence, 0), 100)}%;"></div>
+            </div>
         </div>
-        """, unsafe_allow_html=True)
+        """)
 
     with col3:
-        risk_color = {"LOW": "#48bb78", "MEDIUM": "#ecc94b", "HIGH": "#fc8181"}.get(
-            risk_level, "#a0aec0"
-        )
-        st.markdown(f"""
-        <div class="metric-card">
-            <div class="metric-label">Risk Level</div>
+        _md(f"""
+        <div class="metric-card" style="border-top: 3px solid {risk_color};">
+            <div class="metric-label">Calculated Volatility Risk</div>
             <div class="metric-value" style="color: {risk_color};">{risk_level}</div>
+            <div style="font-family: 'IBM Plex Mono', monospace; font-size: 0.70rem; color: #627C80; margin-top: 6px;">
+                EVALUATED BY RISK ENGINE
+            </div>
         </div>
-        """, unsafe_allow_html=True)
+        """)
 
 
 def _render_overview(report: dict):
-    """Render the overview tab."""
-    # Key factors
-    key_factors = report.get("key_factors", [])
-    if key_factors:
-        st.markdown("### 📋 Key Contributing Factors")
-        for i, factor in enumerate(key_factors, 1):
-            st.markdown(f"**{i}.** {factor}")
+    """Render the overview tab with factor analysis and component gauges."""
+    col_factors, col_breakdown = st.columns([5, 4])
 
-    # Score breakdown gauge
-    st.markdown("### ⚖️ Signal Breakdown")
+    with col_factors:
+        _md("""
+        <div class="terminal-panel" style="height: 100%;">
+            <div class="terminal-panel-header">
+                <div class="terminal-panel-title">Key Determinant Factors</div>
+                <div class="terminal-panel-meta">PRIMARY ATTRIBUTION</div>
+            </div>
+        """)
 
-    tech_score = report.get("technical", {}).get("score", 0)
-    sent_score = report.get("sentiment", {}).get("score", 0)
-    fund_score = report.get("fundamental", {}).get("score", 0)
+        key_factors = report.get("key_factors", [])
+        if key_factors:
+            for i, factor in enumerate(key_factors, 1):
+                _md(f"""
+                <div style="display: flex; gap: 10px; margin-bottom: 10px; font-family: 'IBM Plex Sans', sans-serif; font-size: 0.88rem; line-height: 1.45;">
+                    <span style="font-family: 'IBM Plex Mono', monospace; font-size: 0.75rem; color: #CDFF9A; font-weight: 700;">[{i:02d}]</span>
+                    <span style="color: #F0F6F5;">{factor}</span>
+                </div>
+                """)
+        else:
+            _md("<p style='color: #627C80;'>No primary factors generated.</p>")
 
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        _render_score_gauge("Technical (40%)", tech_score)
-    with col2:
-        _render_score_gauge("Sentiment (30%)", sent_score)
-    with col3:
-        _render_score_gauge("Fundamental (30%)", fund_score)
+        _md("</div>")
 
-    # Risk assessment
+    with col_breakdown:
+        _md("""
+        <div class="terminal-panel">
+            <div class="terminal-panel-header">
+                <div class="terminal-panel-title">Sub-Model Contribution</div>
+                <div class="terminal-panel-meta">WEIGHT DISTRIBUTION</div>
+            </div>
+        """)
+
+        tech_score = report.get("technical", {}).get("score", 0)
+        sent_score = report.get("sentiment", {}).get("score", 0)
+        fund_score = report.get("fundamental", {}).get("score", 0)
+
+        _render_mini_gauge("TECHNICAL ANALYSIS", tech_score, "40%")
+        _render_mini_gauge("NEWS SENTIMENT", sent_score, "30%")
+        _render_mini_gauge("DOCUMENT FUNDAMENTALS", fund_score, "30%")
+
+        _md("</div>")
+
+    # Risk factors summary
     risk = assess_risk(report)
     risk_factors = risk.get("risk_factors", [])
     if risk_factors:
-        st.markdown("### 🛡️ Risk Factors")
-        for factor in risk_factors:
-            st.warning(factor)
-
-
-def _render_score_gauge(label: str, score: float):
-    """Render a mini score gauge."""
-    color = "#48bb78" if score > 0 else "#fc8181" if score < 0 else "#a0aec0"
-    direction = "BULLISH" if score > 0 else "BEARISH" if score < 0 else "NEUTRAL"
-
-    st.markdown(f"""
-    <div class="metric-card">
-        <div class="metric-label">{label}</div>
-        <div class="metric-value" style="color: {color}; font-size: 1.5rem;">
-            {score:+.3f}
+        factors_html = "".join([
+            f"<div style=\"font-family: 'IBM Plex Sans', sans-serif; font-size: 0.85rem; color: #FFA585; margin: 4px 0;\">• {rf}</div>"
+            for rf in risk_factors
+        ])
+        _md(f"""
+        <div style="margin-top: 14px; background: rgba(42, 42, 42, 0.4); border: 1px solid rgba(223, 65, 0, 0.35); border-left: 3px solid #DF4100; border-radius: 8px; padding: 14px 18px;">
+            <div style="font-family: 'IBM Plex Mono', monospace; font-size: 0.72rem; color: #DF4100; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 6px;">
+                ⚠️ ACTIVE RISK PARAMETERS IDENTIFIED:
+            </div>
+            {factors_html}
         </div>
-        <div style="color: {color}; font-size: 0.85rem;">{direction}</div>
+        """)
+
+
+def _render_mini_gauge(label: str, score: float, weight: str):
+    """Render a clean quantitative signal gauge with progress bar."""
+    is_pos = score > 0.05
+    is_neg = score < -0.05
+    color = "#CDFF9A" if is_pos else "#DF4100" if is_neg else "#9EB5B7"
+    state = "BULLISH" if is_pos else "BEARISH" if is_neg else "NEUTRAL"
+    bar_width = min(abs(score) * 100, 100)
+
+    _md(f"""
+    <div style="margin-bottom: 12px; padding: 8px 10px; background: rgba(32, 61, 67, 0.3); border-radius: 6px; border: 1px solid rgba(205, 255, 154, 0.06);">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+            <span style="font-family: 'IBM Plex Mono', monospace; font-size: 0.72rem; color: #9EB5B7; text-transform: uppercase;">{label} ({weight})</span>
+            <span style="font-family: 'IBM Plex Mono', monospace; font-size: 0.72rem; color: {color}; font-weight: 600;">{score:+.3f} // {state}</span>
+        </div>
+        <div style="background: rgba(0, 0, 0, 0.4); border-radius: 3px; height: 4px; width: 100%; overflow: hidden;">
+            <div style="background: {color}; height: 100%; width: {bar_width}%; margin-left: {'auto' if is_neg else '0'};"></div>
+        </div>
     </div>
-    """, unsafe_allow_html=True)
+    """)
 
 
 def _render_technical_details(report: dict, ticker: str):
-    """Render the technical analysis tab."""
+    """Render technical indicators as a clean matrix and multi-panel chart."""
     tech = report.get("technical", {})
     details = tech.get("details", {})
 
@@ -212,104 +296,175 @@ def _render_technical_details(report: dict, ticker: str):
 
     indicators = details.get("indicators", {})
 
-    st.markdown("### 📊 Technical Indicators")
-
+    table_rows_html = ""
     for name, result in indicators.items():
         if not isinstance(result, dict):
             continue
-
         signal = result.get("signal", 0)
         desc = result.get("description", "N/A")
+        label = name.replace("_", " ").upper()
 
-        emoji = "🟢" if signal > 0 else "🔴" if signal < 0 else "⚪"
-        label = name.replace("_", " ").title()
+        if signal > 0:
+            sig_badge = '<span style="color: #CDFF9A; font-weight: 700;">BULLISH ▲</span>'
+        elif signal < 0:
+            sig_badge = '<span style="color: #DF4100; font-weight: 700;">BEARISH ▼</span>'
+        else:
+            sig_badge = '<span style="color: #9EB5B7; font-weight: 500;">NEUTRAL ■</span>'
 
-        st.markdown(f"**{emoji} {label}**: {desc}")
+        table_rows_html += f"""
+        <tr>
+            <td style="font-weight: 600; color: #FFFFFF;">{label}</td>
+            <td>{sig_badge}</td>
+            <td style="color: #9EB5B7;">{desc}</td>
+        </tr>
+        """
 
-    # Technical chart
-    st.markdown("### 📈 Technical Chart")
+    _md(f"""
+    <div class="terminal-panel">
+        <div class="terminal-panel-header">
+            <div class="terminal-panel-title">Technical Indicator Matrix</div>
+            <div class="terminal-panel-meta">PERIOD: 3-MONTH DAILY AGGREGATION</div>
+        </div>
+        <table class="terminal-table">
+            <thead>
+                <tr>
+                    <th>INDICATOR</th>
+                    <th>SIGNAL</th>
+                    <th>INTERPRETATION</th>
+                </tr>
+            </thead>
+            <tbody>
+                {table_rows_html}
+            </tbody>
+        </table>
+    </div>
+    """)
+
+    # 3-Panel Technical Subplot Chart
+    _md("""
+    <div class="terminal-panel-header" style="margin-top: 18px;">
+        <div class="terminal-panel-title">Indicator Oscillators & Bands</div>
+        <div class="terminal-panel-meta">BOLLINGER (20,2) // MACD (12,26,9) // RSI (14)</div>
+    </div>
+    """)
+
     try:
         data = get_historical_data(ticker, period="3mo")
         if data is not None and not data.empty:
-            _render_technical_chart(data, ticker, indicators)
+            _render_technical_chart(data, ticker)
     except Exception as e:
-        st.warning(f"Could not render technical chart: {e}")
+        st.warning(f"Could not load technical indicator chart: {e}")
 
 
-def _render_technical_chart(data: pd.DataFrame, ticker: str, indicators: dict):
-    """Render a technical analysis chart with indicators."""
+def _render_technical_chart(data: pd.DataFrame, ticker: str):
+    """Render a 3-row institutional subplot chart with Bollinger Bands, MACD, and RSI."""
     fig = make_subplots(
         rows=3, cols=1,
         shared_xaxes=True,
-        vertical_spacing=0.05,
-        row_heights=[0.5, 0.25, 0.25],
-        subplot_titles=[f"{ticker} Price + Bollinger Bands", "MACD", "RSI"],
+        vertical_spacing=0.06,
+        row_heights=[0.52, 0.24, 0.24],
+        subplot_titles=[
+            f"{ticker} // PRICE & BOLLINGER BANDS",
+            "MACD (12, 26, 9)",
+            "RSI (14)",
+        ],
     )
 
-    # Price + Bollinger Bands
     close = data["Close"]
     sma20 = close.rolling(20).mean()
     std20 = close.rolling(20).std()
     upper = sma20 + 2 * std20
     lower = sma20 - 2 * std20
 
-    fig.add_trace(go.Scatter(x=data.index, y=close, name="Close",
-                             line=dict(color="#63b3ed", width=2)), row=1, col=1)
-    fig.add_trace(go.Scatter(x=data.index, y=upper, name="Upper BB",
-                             line=dict(color="rgba(160,174,192,0.4)", dash="dash")), row=1, col=1)
-    fig.add_trace(go.Scatter(x=data.index, y=lower, name="Lower BB",
-                             line=dict(color="rgba(160,174,192,0.4)", dash="dash"),
-                             fill="tonexty", fillcolor="rgba(99,179,237,0.05)"), row=1, col=1)
-    fig.add_trace(go.Scatter(x=data.index, y=sma20, name="SMA 20",
-                             line=dict(color="rgba(236,201,75,0.6)", width=1)), row=1, col=1)
+    # Panel 1: Price & Bollinger Bands
+    fig.add_trace(go.Scatter(
+        x=data.index, y=upper, name="Upper BB",
+        line=dict(color="rgba(158,181,183,0.3)", width=1, dash="dot"),
+    ), row=1, col=1)
 
-    # MACD
+    fig.add_trace(go.Scatter(
+        x=data.index, y=lower, name="Lower BB",
+        line=dict(color="rgba(158,181,183,0.3)", width=1, dash="dot"),
+        fill="tonexty", fillcolor="rgba(205, 255, 154, 0.04)",
+    ), row=1, col=1)
+
+    fig.add_trace(go.Scatter(
+        x=data.index, y=sma20, name="SMA 20",
+        line=dict(color="rgba(205, 255, 154, 0.5)", width=1.2),
+    ), row=1, col=1)
+
+    fig.add_trace(go.Scatter(
+        x=data.index, y=close, name="Close",
+        line=dict(color="#CDFF9A", width=2),
+    ), row=1, col=1)
+
+    # Panel 2: MACD
     ema12 = close.ewm(span=12).mean()
     ema26 = close.ewm(span=26).mean()
     macd_line = ema12 - ema26
     signal_line = macd_line.ewm(span=9).mean()
     histogram = macd_line - signal_line
 
-    colors = ["#48bb78" if v >= 0 else "#fc8181" for v in histogram]
-    fig.add_trace(go.Bar(x=data.index, y=histogram, name="MACD Hist",
-                         marker_color=colors), row=2, col=1)
-    fig.add_trace(go.Scatter(x=data.index, y=macd_line, name="MACD",
-                             line=dict(color="#63b3ed", width=1.5)), row=2, col=1)
-    fig.add_trace(go.Scatter(x=data.index, y=signal_line, name="Signal",
-                             line=dict(color="#ecc94b", width=1.5)), row=2, col=1)
+    colors = ["#CDFF9A" if v >= 0 else "#DF4100" for v in histogram]
+    fig.add_trace(go.Bar(
+        x=data.index, y=histogram, name="MACD Hist",
+        marker_color=colors, opacity=0.75,
+    ), row=2, col=1)
 
-    # RSI
+    fig.add_trace(go.Scatter(
+        x=data.index, y=macd_line, name="MACD",
+        line=dict(color="#FFFFFF", width=1.5),
+    ), row=2, col=1)
+
+    fig.add_trace(go.Scatter(
+        x=data.index, y=signal_line, name="Signal",
+        line=dict(color="rgba(205, 255, 154, 0.7)", width=1.5, dash="dash"),
+    ), row=2, col=1)
+
+    # Panel 3: RSI
     delta = close.diff()
     gain = delta.where(delta > 0, 0).rolling(14).mean()
     loss = (-delta).where(delta < 0, 0).rolling(14).mean()
     rs = gain / loss
     rsi = 100 - (100 / (1 + rs))
 
-    fig.add_trace(go.Scatter(x=data.index, y=rsi, name="RSI",
-                             line=dict(color="#b794f4", width=2)), row=3, col=1)
-    fig.add_hline(y=70, line_dash="dash", line_color="rgba(252,129,129,0.5)",
-                  annotation_text="Overbought", row=3, col=1)
-    fig.add_hline(y=30, line_dash="dash", line_color="rgba(72,187,120,0.5)",
-                  annotation_text="Oversold", row=3, col=1)
+    fig.add_trace(go.Scatter(
+        x=data.index, y=rsi, name="RSI",
+        line=dict(color="#CDFF9A", width=1.8),
+    ), row=3, col=1)
+
+    fig.add_hline(y=70, line_dash="dash", line_color="rgba(223, 65, 0, 0.6)",
+                  annotation_text="OVERBOUGHT (70)", annotation_font_size=9,
+                  annotation_font_color="#DF4100", row=3, col=1)
+    fig.add_hline(y=30, line_dash="dash", line_color="rgba(205, 255, 154, 0.6)",
+                  annotation_text="OVERSOLD (30)", annotation_font_size=9,
+                  annotation_font_color="#CDFF9A", row=3, col=1)
 
     fig.update_layout(
         template="plotly_dark",
         paper_bgcolor="rgba(0,0,0,0)",
-        plot_bgcolor="rgba(0,0,0,0)",
-        font=dict(family="Inter", color="#94a3b8"),
-        height=700,
+        plot_bgcolor="rgba(19, 36, 39, 0.4)",
+        font=dict(family="IBM Plex Mono, monospace", color="#9EB5B7", size=10),
+        height=660,
         showlegend=False,
-        margin=dict(l=60, r=20, t=40, b=20),
+        hovermode="x unified",
+        margin=dict(l=40, r=40, t=30, b=20),
     )
 
-    fig.update_xaxes(gridcolor="rgba(255,255,255,0.03)")
-    fig.update_yaxes(gridcolor="rgba(255,255,255,0.03)")
+    fig.update_xaxes(
+        gridcolor="rgba(205, 255, 154, 0.05)",
+        linecolor="rgba(205, 255, 154, 0.12)",
+    )
+    fig.update_yaxes(
+        gridcolor="rgba(205, 255, 154, 0.05)",
+        linecolor="rgba(205, 255, 154, 0.12)",
+    )
 
     st.plotly_chart(fig, use_container_width=True)
 
 
 def _render_sentiment_details(report: dict):
-    """Render the sentiment analysis tab."""
+    """Render institutional news sentiment wire and compound scores."""
     sent = report.get("sentiment", {})
     details = sent.get("details", {})
 
@@ -321,32 +476,63 @@ def _render_sentiment_details(report: dict):
     desc = details.get("description", "N/A")
     compound = details.get("aggregate_compound", 0)
 
-    st.markdown("### 📰 News Sentiment Analysis")
-    st.markdown(f"**Overall:** {desc}")
-    st.markdown(f"**Aggregate Compound Score:** `{compound:+.4f}`")
+    col1, col2 = st.columns(2)
+    with col1:
+        _md(f"""
+        <div class="metric-card">
+            <div class="metric-label">Aggregate Compound Score</div>
+            <div class="metric-value" style="color: {'#CDFF9A' if compound >= 0 else '#DF4100'};">
+                {compound:+.4f}
+            </div>
+            <div style="font-family: 'IBM Plex Mono', monospace; font-size: 0.70rem; color: #627C80;">RANGE: -1.0 TO +1.0 (VADER ALGORITHM)</div>
+        </div>
+        """)
+    with col2:
+        _md(f"""
+        <div class="metric-card">
+            <div class="metric-label">Sentiment Classification</div>
+            <div class="metric-value" style="font-size: 1.3rem; color: #FFFFFF;">{desc.upper()}</div>
+            <div style="font-family: 'IBM Plex Mono', monospace; font-size: 0.70rem; color: #627C80;">WEIGHT CONTRIBUTION: 30%</div>
+        </div>
+        """)
 
-    # Individual headlines
+    # Individual headline audit
     individual = details.get("individual", [])
     if individual:
-        st.markdown("### 📝 Headline Sentiment Breakdown")
-        for item in individual:
+        headlines_html = ""
+        for item in individual[:8]:
             headline = item.get("headline", "N/A")
-            compound_score = item.get("compound", 0)
+            c_score = item.get("compound", 0)
 
-            if compound_score > 0.1:
-                emoji = "🟢"
-            elif compound_score < -0.1:
-                emoji = "🔴"
+            if c_score > 0.05:
+                badge = f'<span style="color: #CDFF9A; font-weight: 700;">+{c_score:.3f} ▲</span>'
+            elif c_score < -0.05:
+                badge = f'<span style="color: #DF4100; font-weight: 700;">{c_score:.3f} ▼</span>'
             else:
-                emoji = "⚪"
+                badge = f'<span style="color: #9EB5B7; font-weight: 500;">{c_score:+.3f} ■</span>'
 
-            st.markdown(f"{emoji} **{compound_score:+.3f}** — {headline}")
+            headlines_html += f"""
+            <div style="display: flex; align-items: flex-start; gap: 14px; padding: 10px 0; border-bottom: 1px solid rgba(205, 255, 154, 0.06); font-family: 'IBM Plex Sans', sans-serif; font-size: 0.88rem;">
+                <div style="font-family: 'IBM Plex Mono', monospace; font-size: 0.78rem; min-width: 80px;">{badge}</div>
+                <div style="color: #F0F6F5; line-height: 1.4;">{headline}</div>
+            </div>
+            """
+
+        _md(f"""
+        <div class="terminal-panel" style="margin-top: 14px;">
+            <div class="terminal-panel-header">
+                <div class="terminal-panel-title">Parsed News Headlines & Sentiment Attribution</div>
+                <div class="terminal-panel-meta">AUDIT TRAIL</div>
+            </div>
+            {headlines_html}
+        </div>
+        """)
     else:
-        st.info("No individual headline data available.")
+        st.info("No individual news headlines available for sentiment breakdown.")
 
 
 def _render_fundamental_details(report: dict):
-    """Render the fundamental analysis tab."""
+    """Render fundamental document analysis from the vector store."""
     fund = report.get("fundamental", {})
     details = fund.get("details", {})
 
@@ -359,21 +545,48 @@ def _render_fundamental_details(report: dict):
     doc_count = details.get("documents_found", 0)
     sources = details.get("sources", [])
 
-    st.markdown("### 📄 Fundamental Analysis (from Documents)")
+    col1, col2 = st.columns(2)
+    with col1:
+        _md(f"""
+        <div class="metric-card">
+            <div class="metric-label">Document Chunks Retrieved</div>
+            <div class="metric-value" style="color: #CDFF9A;">{doc_count}</div>
+            <div style="font-family: 'IBM Plex Mono', monospace; font-size: 0.70rem; color: #627C80;">VECTOR STORE: CHROMADB HYBRID SEARCH</div>
+        </div>
+        """)
+    with col2:
+        _md(f"""
+        <div class="metric-card">
+            <div class="metric-label">Fundamental Composite Score</div>
+            <div class="metric-value" style="color: {'#CDFF9A' if score >= 0 else '#DF4100'};">
+                {score:+.3f}
+            </div>
+            <div style="font-family: 'IBM Plex Mono', monospace; font-size: 0.70rem; color: #627C80;">EVALUATION: {desc.upper()}</div>
+        </div>
+        """)
 
     if doc_count == 0:
-        st.info(
-            "No relevant documents found. Upload financial documents "
-            "(annual reports, fact sheets) to enable fundamental analysis."
-        )
+        _md("""
+        <div class="glass-card" style="margin-top: 14px; text-align: center; padding: 24px;">
+            <div style="font-family: 'IBM Plex Mono', monospace; font-size: 0.82rem; color: #627C80;">
+                NO AUDITED DOCUMENTS FOUND FOR THIS TICKER IN THE LOCAL VECTOR STORE<br>
+                <span style="font-size: 0.74rem; color: #435E62;">Upload 10-K, earnings releases, or equity research PDF/TXT files in the Research Agent tab to populate this index.</span>
+            </div>
+        </div>
+        """)
         return
 
-    st.markdown(f"**Documents analyzed:** {doc_count} chunks")
-    st.markdown(f"**Fundamental score:** `{score:+.3f}`")
-    st.markdown(f"**Assessment:** {desc}")
-
     if sources:
-        st.markdown("**Source files:**")
-        unique_sources = list(set(sources))
-        for src in unique_sources:
-            st.markdown(f"  - 📁 {src}")
+        sources_html = "".join([
+            f'<div style="font-family: \'IBM Plex Mono\', monospace; font-size: 0.78rem; color: #CDFF9A; padding: 6px 0;">📄 {s}</div>'
+            for s in list(set(sources))
+        ])
+        _md(f"""
+        <div class="terminal-panel" style="margin-top: 14px;">
+            <div class="terminal-panel-header">
+                <div class="terminal-panel-title">Referenced Corpus Filenames</div>
+                <div class="terminal-panel-meta">DOCUMENT SOURCE ATTRIBUTION</div>
+            </div>
+            {sources_html}
+        </div>
+        """)
