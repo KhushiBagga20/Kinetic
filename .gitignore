@@ -1,0 +1,63 @@
+# ─── Environment & Secrets (NEVER commit these) ──────────────────────────────
+.env
+*.env
+.env.local
+.env.*.local
+
+# ─── Python Virtual Environments ─────────────────────────────────────────────
+.venv/
+venv/
+env/
+ENV/
+
+# ─── Python Cache ────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyo
+*.pyc
+.Python
+
+# ─── ChromaDB (persisted vector store — large, rebuild locally) ──────────────
+chroma_db/
+
+# ─── Streamlit ───────────────────────────────────────────────────────────────
+.streamlit/
+
+# ─── Jupyter / IPython ───────────────────────────────────────────────────────
+.ipynb_checkpoints
+*.ipynb
+
+# ─── macOS ───────────────────────────────────────────────────────────────────
+.DS_Store
+.AppleDouble
+.LSOverride
+Thumbs.db
+
+# ─── IDE / Editor ────────────────────────────────────────────────────────────
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# ─── Logs ────────────────────────────────────────────────────────────────────
+*.log
+logs/
+
+# ─── Build / Dist ────────────────────────────────────────────────────────────
+dist/
+build/
+*.egg-info/
+.eggs/
+
+# ─── Data (uploaded documents — user-specific, not committed) ────────────────
+data/documents/*.pdf
+data/documents/*.txt
+# README.md in data/documents/ IS committed (keeps the folder)
+
+# ─── MLX Model Weights (large binary files) ──────────────────────────────────
+*.bin
+*.safetensors
+*.gguf
+*.ggml
+models/
