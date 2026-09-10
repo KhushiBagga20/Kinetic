@@ -10,13 +10,19 @@ machine. No API keys, and nothing leaves the laptop: not your positions, not
 your filings, not your questions.
 
 ```
-┌────────────┐   ┌──────────────────────┐   ┌─────────────────────────┐
-│  question  │ → │  hybrid retrieval    │ → │  Gemma 4 (MLX, local)   │ → streamed answer
-└────────────┘   │  dense + BM25 → RRF  │   │  native tool calling    │
-                 └──────────┬───────────┘   └───────────┬─────────────┘
-                            │                           │
-                   ChromaDB │ your documents   live tools│ quotes · fundamentals
-                            │ live snapshots             │ news · screeners · forecast
+  React + Tailwind + shadcn/ui            FastAPI (Python)
+┌──────────────────────────────┐  JSON  ┌──────────────────────────────────┐
+│  frontend/                   │ ─────► │  backend/                        │
+│  dock · charts · streaming   │  SSE   │  market · rag · portfolio · agent │
+└──────────────────────────────┘ ◄───── └──────────────┬───────────────────┘
+                                                       │
+        ┌──────────────────────┐   ┌──────────────────────────────┐
+        │  hybrid retrieval    │ → │  Gemma 4 (MLX, on-device)    │
+        │  dense + BM25 → RRF  │   │  native tool calling         │
+        └──────────┬───────────┘   └──────────────┬───────────────┘
+                   │                              │
+          ChromaDB │ your documents      live tools│ quotes · fundamentals
+                   │ live snapshots               │ news · screeners · forecast
 ```
 
 ## What it does
@@ -46,16 +52,23 @@ keyboard navigation.
 ## Requirements
 
 - macOS on Apple Silicon (the model runs on MLX)
-- Python 3.11+
+- Python 3.11+ and Node 20+
 - ~15 GB of free unified memory while the model is loaded
 
 ## Setup
 
+Two processes: the Python engine, and the web interface.
+
 ```bash
-python3 -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
-streamlit run app.py
+cd backend && pip install -r requirements.txt && uvicorn main:app --port 8000
 ```
+
+```bash
+cd frontend && npm install && npm run dev
+```
+
+Then open **http://localhost:5173**. The frontend proxies `/api` to the backend,
+so the browser is always same-origin.
 
 The model weights are pulled from Hugging Face the first time they are needed
 (`mlx-community/gemma-4-26b-a4b-it-4bit`, about 14 GB). Everything except the
@@ -107,6 +120,7 @@ Eleven tools back both the assistant and the MCP server, from one registry
 Serve them to any MCP client:
 
 ```bash
+cd backend
 python -m src.mcp_server          # stdio
 python -m src.mcp_server --http   # HTTP on 127.0.0.1:8765
 ```
@@ -114,6 +128,7 @@ python -m src.mcp_server --http   # HTTP on 127.0.0.1:8765
 ## Command line
 
 ```bash
+cd backend
 python scripts/ingest.py                      # index data/documents/
 python scripts/ingest.py report.pdf           # index specific files
 python scripts/ingest.py --live NVDA AAPL     # capture live snapshots
@@ -128,30 +143,61 @@ reports the latency of each. It never loads the model.
 Unit tests (no network, no weights):
 
 ```bash
-python -m pytest tests -q
+cd backend && python -m pytest tests -q
 ```
 
 ## Layout
 
 ```
-app.py                  Streamlit shell and navigation
-config.py               every setting, all overridable from .env
-src/
-  llm.py                MLX Gemma engine: streaming, tool-call parsing
-  agent.py              retrieve → reason → act loop, emitted as events
-  tools.py              tool registry shared by the agent and MCP
-  portfolio.py          local holdings, live pricing, semantic exposure
-  preferences.py        profile and accessibility settings, stored locally
-  indicators.py         RSI, MACD, moving averages, bands, volatility
-  prediction.py         the four-leg ensemble forecast
-  mcp_server.py         MCP entry point
-  market/               live quotes, history, fundamentals, news, screeners, FX
-  rag/                  chunking, embeddings, ChromaDB store, hybrid retriever
-ui/                     one module per view, plus the shared theme
-scripts/ingest.py       command-line ingestion
-scripts/selfcheck.py    end-to-end verification, model excluded
-tests/                  unit tests: chunking, BM25, tool calls, agent, portfolio
+backend/
+  main.py               FastAPI app: CORS, routers, health
+  config.py             every setting, all overridable from .env
+  api/                  one router per area, thin shells over src/
+    market.py  portfolio.py  knowledge.py  chat.py  system.py  schemas.py
+  src/
+    llm.py              MLX Gemma engine: streaming, tool-call parsing
+    agent.py            retrieve → reason → act loop, emitted as events
+    tools.py            tool registry shared by the agent and MCP
+    portfolio.py        local holdings, live pricing, semantic exposure
+    preferences.py      profile and accessibility settings, stored locally
+    indicators.py       RSI, MACD, moving averages, bands, volatility
+    prediction.py       the four-leg ensemble forecast
+    mcp_server.py       MCP entry point
+    market/             live quotes, history, fundamentals, news, screeners, FX
+    rag/                chunking, embeddings, ChromaDB store, hybrid retriever
+  scripts/              ingest.py, selfcheck.py
+  tests/                chunking, BM25, tool calls, agent loop, portfolio maths
+
+frontend/
+  src/
+    pages/              Home, Portfolio, Research, Assistant, Knowledge
+    components/
+      layout/           dock, top bar, ticker, ⌘K search, onboarding
+      market/           price chart, forecast panel, stat card, delta
+      chat/             markdown answer renderer, in-chat charts
+      ui/               shadcn/ui primitives + motion primitives
+    hooks/              React Query data layer
+    lib/                api client, types, formatting, SSE stream reader
+    index.css           the design tokens and the whole visual language
 ```
+
+## The interface
+
+Built with React, Tailwind v4, [shadcn/ui](https://ui.shadcn.com) and Motion.
+
+- A **magnifying dock** for navigation, the way the macOS dock behaves — each
+  item's size is a function of its distance from the cursor, run through a spring.
+- **Candles from lightweight-charts**, the library TradingView builds on.
+- **Answers render as markdown** — headings, bullets and GitHub-flavoured tables
+  with numeric columns right-aligned in a monospace face.
+- **Charts inside the chat**: the model can emit a fenced `kinetic-chart` block
+  with a small JSON spec, and the interface renders a real bar, line or donut
+  chart from it.
+- Numbers **interpolate to their new value** when a live price updates, tinting
+  briefly in the direction of the move.
+- Accessibility: text scaling, a high-contrast palette, reduced motion honoured
+  from both the OS and an explicit toggle, visible focus rings, and a ▲/▼ glyph
+  on every change so colour is never the only signal.
 
 ## Disclaimer
 

@@ -1,0 +1,311 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+@import "@fontsource/ibm-plex-sans/300.css";
+@import "@fontsource/ibm-plex-sans/400.css";
+@import "@fontsource/ibm-plex-sans/500.css";
+@import "@fontsource/ibm-plex-sans/600.css";
+@import "@fontsource/ibm-plex-sans/700.css";
+@import "@fontsource/ibm-plex-mono/400.css";
+@import "@fontsource/ibm-plex-mono/500.css";
+@import "@fontsource/ibm-plex-mono/600.css";
+
+@custom-variant dark (&:is(.dark *));
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Kinetic design tokens
+
+   One accent (lime) carries every positive, active and focused state; one
+   signal colour (ember) carries every negative and risk state. Everything else
+   is a step on a single teal-charcoal ramp, so the interface reads as one
+   surface with information layered on it rather than as decorated boxes.
+   ───────────────────────────────────────────────────────────────────────────*/
+
+:root {
+  /* Brand */
+  --lime: #cdff9a;
+  --lime-soft: #e4ffc9;
+  --lime-deep: #9fd968;
+  --ember: #ff5a2b;
+  --ember-soft: #ff8a63;
+
+  /* Canvas ramp */
+  --void: #070d0f;
+  --canvas: #0c1a1c;
+  --raised: #16282b;
+  --surface: #1d3438;
+  --line: #27484e;
+
+  /* Ink */
+  --ink: #f2f8f6;
+  --ink-muted: #a9c0c2;
+  --ink-dim: #7a9295;
+
+  --radius: 0.75rem;
+
+  /* shadcn contract, repainted */
+  --background: var(--canvas);
+  --foreground: var(--ink);
+  --card: color-mix(in oklab, var(--raised) 96%, transparent);
+  --card-foreground: var(--ink);
+  --popover: var(--raised);
+  --popover-foreground: var(--ink);
+  --primary: var(--lime);
+  --primary-foreground: #0a1512;
+  --secondary: var(--surface);
+  --secondary-foreground: var(--ink);
+  --muted: var(--surface);
+  --muted-foreground: var(--ink-muted);
+  --accent: color-mix(in oklab, var(--lime) 14%, transparent);
+  --accent-foreground: var(--lime);
+  --destructive: var(--ember);
+  --border: color-mix(in oklab, var(--lime) 16%, var(--line));
+  --input: color-mix(in oklab, var(--lime) 8%, var(--line));
+  --ring: var(--lime);
+
+  --chart-1: #cdff9a;
+  --chart-2: #7fd6a4;
+  --chart-3: #4fb0ad;
+  --chart-4: #35849c;
+  --chart-5: #2b5c72;
+
+  --sidebar: color-mix(in oklab, var(--void) 88%, transparent);
+  --sidebar-foreground: var(--ink);
+  --sidebar-primary: var(--lime);
+  --sidebar-primary-foreground: #0a1512;
+  --sidebar-accent: var(--surface);
+  --sidebar-accent-foreground: var(--lime);
+  --sidebar-border: var(--line);
+  --sidebar-ring: var(--lime);
+
+  color-scheme: dark;
+}
+
+@theme inline {
+  --font-sans: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-heading: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+
+  --color-lime: var(--lime);
+  --color-lime-soft: var(--lime-soft);
+  --color-lime-deep: var(--lime-deep);
+  --color-ember: var(--ember);
+  --color-ember-soft: var(--ember-soft);
+  --color-void: var(--void);
+  --color-canvas: var(--canvas);
+  --color-raised: var(--raised);
+  --color-surface: var(--surface);
+  --color-line: var(--line);
+  --color-ink: var(--ink);
+  --color-ink-muted: var(--ink-muted);
+  --color-ink-dim: var(--ink-dim);
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+
+  --radius-sm: calc(var(--radius) * 0.5);
+  --radius-md: calc(var(--radius) * 0.75);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.35);
+  --radius-2xl: calc(var(--radius) * 1.8);
+
+  --animate-shimmer: shimmer 2.4s linear infinite;
+  --animate-breathe: breathe 2.6s ease-in-out infinite;
+  --animate-ticker: ticker 48s linear infinite;
+  --animate-caret: caret 1.05s step-end infinite;
+  --animate-rise: rise 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+@keyframes breathe {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.45; transform: scale(0.86); }
+}
+@keyframes ticker {
+  from { transform: translateX(0); }
+  to { transform: translateX(-50%); }
+}
+@keyframes caret {
+  50% { opacity: 0; }
+}
+@keyframes rise {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: none; }
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/60;
+  }
+
+  html {
+    font-size: calc(16px * var(--text-scale, 1));
+  }
+
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+    /* A faint horizon behind everything, so the canvas has depth without noise */
+    background-image:
+      linear-gradient(color-mix(in oklab, var(--lime) 2.5%, transparent) 1px, transparent 1px),
+      linear-gradient(90deg, color-mix(in oklab, var(--lime) 2.5%, transparent) 1px, transparent 1px),
+      radial-gradient(120% 70% at 50% -25%, color-mix(in oklab, var(--lime) 9%, transparent), transparent 60%),
+      radial-gradient(80% 50% at 100% 100%, color-mix(in oklab, #1d4a53 60%, transparent), transparent 70%),
+      linear-gradient(180deg, var(--canvas) 0%, var(--void) 100%);
+    background-size: 44px 44px, 44px 44px, auto, auto, auto;
+    background-attachment: fixed;
+    letter-spacing: -0.011em;
+  }
+
+  /* Numbers are compared column to column: they must not jitter. */
+  .tabular, table, .font-mono {
+    font-variant-numeric: tabular-nums;
+  }
+
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb {
+    background: color-mix(in oklab, var(--lime) 14%, var(--line));
+    border-radius: 999px;
+    border: 3px solid transparent;
+    background-clip: content-box;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: color-mix(in oklab, var(--lime) 30%, var(--line));
+    background-clip: content-box;
+  }
+
+  :focus-visible {
+    @apply outline-2 outline-offset-2 outline-lime;
+  }
+}
+
+@layer components {
+  /* Glass panel: the single surface treatment used across the app. */
+  .glass {
+    @apply relative rounded-xl border bg-card/85 backdrop-blur-xl;
+    box-shadow:
+      inset 0 1px 0 color-mix(in oklab, white 9%, transparent),
+      inset 0 0 0 1px color-mix(in oklab, var(--lime) 3%, transparent),
+      0 2px 6px -2px rgb(0 0 0 / 0.5),
+      0 26px 50px -34px rgb(0 0 0 / 0.95);
+  }
+
+  /* A hairline of light along the top edge — the cheapest way to say "surface". */
+  .glass::before {
+    content: "";
+    position: absolute;
+    inset: 0 12% auto 12%;
+    height: 1px;
+    background: linear-gradient(
+      90deg,
+      transparent,
+      color-mix(in oklab, var(--lime) 30%, transparent),
+      transparent
+    );
+    opacity: 0.5;
+  }
+
+  /* Hairline that fades at both ends — used to separate bands of content. */
+  .hairline {
+    height: 1px;
+    background: linear-gradient(
+      90deg,
+      transparent,
+      color-mix(in oklab, var(--lime) 26%, transparent),
+      transparent
+    );
+  }
+
+  .label {
+    @apply font-mono text-[0.66rem] uppercase tracking-[0.14em] text-ink-dim;
+  }
+
+  /* Section heading: small, confident, with a lime tick to anchor it. */
+  .section-title {
+    @apply flex items-center gap-2 text-[0.95rem] font-semibold tracking-[-0.01em] text-ink;
+  }
+  .section-title::before {
+    content: "";
+    @apply h-3.5 w-[2px] rounded-full bg-lime;
+  }
+
+  .numeric {
+    @apply font-mono tabular-nums tracking-tight;
+  }
+
+  /* Loading placeholder that suggests data arriving rather than a grey box. */
+  .shimmer {
+    background: linear-gradient(
+      90deg,
+      transparent 0%,
+      color-mix(in oklab, var(--lime) 8%, transparent) 50%,
+      transparent 100%
+    );
+    background-size: 200% 100%;
+    animation: var(--animate-shimmer);
+  }
+
+  .live-dot {
+    @apply inline-block size-1.5 rounded-full bg-lime;
+    box-shadow: 0 0 0 3px color-mix(in oklab, var(--lime) 18%, transparent);
+    animation: var(--animate-breathe);
+  }
+}
+
+/* Anyone who asks for less motion gets none of it. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}
+
+/* The same, as an explicit preference stored with the profile. */
+:root[data-motion="reduced"] *,
+:root[data-motion="reduced"] *::before,
+:root[data-motion="reduced"] *::after {
+  animation-duration: 0.001ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.001ms !important;
+}
+
+:root[data-contrast="high"] {
+  --ink: #ffffff;
+  --ink-muted: #dbe9e7;
+  --ink-dim: #b0c4c6;
+  --line: #2f5b62;
+  --border: color-mix(in oklab, var(--lime) 34%, var(--line));
+}

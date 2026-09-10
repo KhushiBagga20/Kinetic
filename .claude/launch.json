@@ -2,10 +2,10 @@
   "version": "0.0.1",
   "configurations": [
     {
-      "name": "kinetic",
-      "runtimeExecutable": "python3",
-      "runtimeArgs": ["-m", "streamlit", "run", "app.py", "--server.port", "8511", "--server.headless", "true"],
-      "port": 8511
+      "name": "kinetic-web",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev", "--prefix", "frontend"],
+      "port": 5173
     }
   ]
 }

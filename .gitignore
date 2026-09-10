@@ -63,9 +63,14 @@ data/documents/*.txt
 models/
 
 # Kinetic local state
-data/vector_store/
+backend/data/vector_store/
 chroma_db/
 
 # Personal data — holdings and preferences never leave this machine
-data/portfolio.json
-data/preferences.json
+backend/data/portfolio.json
+backend/data/preferences.json
+
+# Frontend build output
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
