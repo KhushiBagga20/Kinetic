@@ -29,7 +29,9 @@ export const Answer = memo(function Answer({
   streaming?: boolean
 }) {
   return (
-    <div className="text-[0.88rem] leading-[1.72] text-ink">
+    // min-w-0 + overflow-wrap keep long tickers, URLs and numbers inside the
+    // bubble; wide tables and code scroll sideways in their own boxes.
+    <div className="min-w-0 max-w-full text-[0.88rem] leading-[1.72] text-ink [overflow-wrap:anywhere]">
       <Markdown
         remarkPlugins={[remarkGfm]}
         components={{
@@ -82,8 +84,8 @@ export const Answer = memo(function Answer({
 
           // -- tables ---------------------------------------------------------
           table: ({ children }) => (
-            <div className="my-3 overflow-x-auto rounded-xl border border-border/60">
-              <table className="w-full border-collapse text-[0.8rem]">{children}</table>
+            <div className="my-3 max-w-full overflow-x-auto rounded-xl border border-border/60">
+              <table className="w-full border-collapse text-[0.8rem] [overflow-wrap:normal]">{children}</table>
             </div>
           ),
           thead: ({ children }) => (
@@ -104,7 +106,7 @@ export const Answer = memo(function Answer({
             <td
               className={cn(
                 "border-b border-border/30 px-3 py-2 text-ink-muted",
-                looksNumeric(children) && "numeric text-right text-ink",
+                looksNumeric(children) && "numeric whitespace-nowrap text-right text-ink",
               )}
             >
               {children}
@@ -135,7 +137,7 @@ export const Answer = memo(function Answer({
               )
             }
             return (
-              <pre className="my-2.5 overflow-x-auto rounded-lg border border-border/60 bg-void/50 p-3">
+              <pre className="my-2.5 max-w-full overflow-x-auto rounded-lg border border-border/60 bg-void/50 p-3 [overflow-wrap:normal]">
                 <code className="font-mono text-[0.76rem] text-ink-muted">{source}</code>
               </pre>
             )

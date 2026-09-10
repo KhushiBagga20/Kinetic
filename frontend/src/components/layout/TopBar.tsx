@@ -35,6 +35,8 @@ export function TopBar() {
   const [searchOpen, setSearchOpen] = useState(false)
 
   const loaded = status?.model.loaded ?? false
+  // The backend loads the model on its own at start; show that as loading too.
+  const loading = loadModel.isPending || Boolean(status?.model.loading)
 
   return (
     <header className="sticky top-0 z-40 flex h-14 items-center gap-3 border-b border-border/60 bg-canvas/70 px-5 backdrop-blur-xl">
@@ -143,7 +145,7 @@ export function TopBar() {
             <Button
               size="sm"
               variant={loaded ? "outline" : "default"}
-              disabled={loadModel.isPending}
+              disabled={loading}
               onClick={() =>
                 loadModel.mutate(loaded ? "unload" : "load", {
                   onError: (error) => toast.error(String(error)),
@@ -152,7 +154,7 @@ export function TopBar() {
               }
               className="h-8 gap-2"
             >
-              {loadModel.isPending ? (
+              {loading ? (
                 <Loader2 className="size-3.5 animate-spin" />
               ) : (
                 <span
@@ -163,9 +165,9 @@ export function TopBar() {
                 />
               )}
               <span className="font-mono text-[0.7rem]">
-                {loadModel.isPending ? "LOADING" : loaded ? "GEMMA READY" : "LOAD MODEL"}
+                {loading ? "LOADING" : loaded ? "GEMMA READY" : "LOAD MODEL"}
               </span>
-              {!loaded && !loadModel.isPending && <Cpu className="size-3.5" />}
+              {!loaded && !loading && <Cpu className="size-3.5" />}
             </Button>
           </TooltipTrigger>
           <TooltipContent side="bottom" className="max-w-64">

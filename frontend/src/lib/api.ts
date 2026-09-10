@@ -7,8 +7,11 @@
 
 import type {
   Article,
+  AutomationStatus,
+  Briefing,
   Candle,
   Exposure,
+  ExposureReport,
   Forecast,
   Indicator,
   IndexStats,
@@ -115,4 +118,11 @@ export const api = {
 
   // -- chat -----------------------------------------------------------------
   resetChat: () => post<unknown>("/chat/reset"),
+
+  // -- automation -----------------------------------------------------------
+  briefing: () => request<Briefing>("/auto/briefing"),
+  autoExposure: () =>
+    request<ExposureReport & { ready: boolean; automation: AutomationStatus }>("/auto/exposure"),
+  automationStatus: () => request<AutomationStatus>("/auto/status"),
+  refreshAutomation: () => post<AutomationStatus>("/auto/refresh"),
 }

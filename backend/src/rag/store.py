@@ -13,6 +13,7 @@ Chroma never downloads a model of its own.
 from __future__ import annotations
 
 import hashlib
+import threading
 from typing import Any
 
 import chromadb
@@ -24,12 +25,24 @@ DOCUMENTS = config.COLLECTION_DOCUMENTS
 MARKET = config.COLLECTION_MARKET
 
 _client: chromadb.ClientAPI | None = None
+_client_lock = threading.Lock()
 
 
 def client() -> chromadb.ClientAPI:
+    """
+    The one Chroma client, created on first use.
+
+    Chroma's own first-time setup is not safe to run from two threads at
+    once — it throws if a second request lands mid-construction. The
+    background automation loop and the browser's own requests can now both
+    reach this in the same instant the server starts, so first access is
+    guarded here.
+    """
     global _client
     if _client is None:
-        _client = chromadb.PersistentClient(path=str(config.VECTOR_DIR))
+        with _client_lock:
+            if _client is None:
+                _client = chromadb.PersistentClient(path=str(config.VECTOR_DIR))
     return _client
 
 

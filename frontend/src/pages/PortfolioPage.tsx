@@ -11,6 +11,7 @@ import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip as ReTooltip } from "
 import { toast } from "sonner"
 
 import { Delta } from "@/components/market/Delta"
+import { ExposureRadar } from "@/components/portfolio/ExposureRadar"
 import { StatCard } from "@/components/market/StatCard"
 import { NumberFlow } from "@/components/ui/number-flow"
 import { Rise, Stagger, StaggerItem } from "@/components/ui/motion-primitives"
@@ -100,6 +101,9 @@ export function PortfolioPage() {
           </StaggerItem>
         </Stagger>
       )}
+
+      {/* -- automatic exposure: themes from today's news, no typing needed -- */}
+      {positions.length > 0 && <ExposureRadar />}
 
       <div className="grid items-start gap-5 lg:grid-cols-[1.5fr_1fr]">
         {/* -- holdings ---------------------------------------------------- */}
@@ -320,11 +324,11 @@ export function PortfolioPage() {
           <Rise delay={0.15} className="glass p-5">
             <div className="flex items-center gap-2">
               <Radar className="size-4 text-lime" strokeWidth={1.8} />
-              <h2 className="text-[0.95rem] font-semibold text-ink">Exposure check</h2>
+              <h2 className="text-[0.95rem] font-semibold text-ink">Check your own scenario</h2>
             </div>
             <p className="mt-2 text-[0.78rem] leading-relaxed text-ink-muted">
-              Describe an event in plain words. Each holding's live profile is embedded on this
-              machine and compared against it — so the match is semantic, not a keyword rule.
+              The radar above runs on its own. To test something it did not pick up, describe an
+              event in plain words — each holding's live profile is compared against it on this machine.
             </p>
 
             <form

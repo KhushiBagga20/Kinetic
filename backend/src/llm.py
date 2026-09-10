@@ -277,6 +277,7 @@ class LocalLLM:
         self._worker = ThreadPoolExecutor(max_workers=1, thread_name_prefix="kinetic-mlx")
         self._load_seconds = 0.0
         self._error = ""
+        self._loading = False
 
     # -- lifecycle ------------------------------------------------------------
 
@@ -288,6 +289,7 @@ class LocalLLM:
         return {
             "model": self.model_id,
             "loaded": self.is_loaded,
+            "loading": self._loading and not self.is_loaded,
             "load_seconds": round(self._load_seconds, 1),
             "error": self._error,
             "backend": "MLX / Apple Silicon",
@@ -307,6 +309,7 @@ class LocalLLM:
             if self.is_loaded:
                 return
             started = time.time()
+            self._loading = True
             try:
                 from mlx_lm import load
 
@@ -316,6 +319,7 @@ class LocalLLM:
                 self._error = f"{type(exc).__name__}: {exc}"
                 raise
             finally:
+                self._loading = False
                 self._load_seconds = time.time() - started
 
     def unload(self) -> None:
@@ -379,7 +383,9 @@ class LocalLLM:
         )
 
         parser = StreamParser()
-        self._last = Reply()
+        # Built locally and published only when complete, so a background job
+        # (the automatic briefing) can never overwrite a chat reply mid-read.
+        reply = Reply()
         for response in stream_generate(
             self._model,
             self._tokenizer,
@@ -389,14 +395,28 @@ class LocalLLM:
         ):
             for piece in parser.feed(response.text):
                 yield piece
-            self._last.tokens = response.generation_tokens
-            self._last.tokens_per_sec = response.generation_tps
+            reply.tokens = response.generation_tokens
+            reply.tokens_per_sec = response.generation_tps
         for piece in parser.finish():
             yield piece
 
-        self._last.text = parser.answer.strip()
-        self._last.thought = parser.thought.strip()
-        self._last.tool_calls = parser.tool_calls
+        reply.text = parser.answer.strip()
+        reply.thought = parser.thought.strip()
+        reply.tool_calls = parser.tool_calls
+        self._last = reply
+
+    def write(self, messages: Sequence[dict[str, Any]], max_tokens: int = 600) -> str:
+        """
+        Generate plain text without tools, for background jobs.
+
+        The text is collected from the stream itself rather than from
+        `last_reply()`, so it cannot mix with a chat answer being written.
+        """
+        parts: list[str] = []
+        for piece in self.stream(messages, max_tokens=max_tokens, thinking=False):
+            if piece.channel == "answer":
+                parts.append(piece.text)
+        return "".join(parts).strip()
 
     def last_reply(self) -> Reply:
         """The complete turn produced by the most recent `stream()` call."""

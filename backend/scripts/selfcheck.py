@@ -61,6 +61,21 @@ def main() -> int:
     results.append(check("portfolio pricing", lambda: f"{len(portfolio.positions())} positions priced"))
     results.append(check("portfolio exposure", lambda: f"{len(portfolio.exposure('rising interest rates'))} holdings matched"))
 
+    from src import briefing, exposure, themes
+
+    def simulation_check() -> str:
+        result = forecast(symbol)
+        return (
+            f"{result.probability_up * 100:.0f}% up odds, backtest skill {result.skill:.2f}"
+            if result.probability_up is not None
+            else "no simulation (thin history)"
+        )
+
+    results.append(check("monte carlo + backtest", simulation_check))
+    results.append(check("theme detection", lambda: f"{len(themes.detect_themes([symbol]))} themes"))
+    results.append(check("automatic exposure", lambda: f"{len(exposure.auto_report()['themes'])} themes touch the book"))
+    results.append(check("daily briefing", lambda: f"{len(briefing.build(write_note=False)['forecasts'])} holdings forecast"))
+
     def model_present() -> str:
         from huggingface_hub import try_to_load_from_cache
 

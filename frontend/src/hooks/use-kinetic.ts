@@ -82,10 +82,50 @@ export const useForecast = (symbol: string | undefined, horizon: number, enabled
     queryFn: () => api.forecast(symbol!, horizon),
     enabled: Boolean(symbol) && enabled,
     staleTime: SLOW,
+    refetchInterval: SLOW, // stays current on its own while the page is open
   })
 
 export const usePortfolio = () =>
   useQuery({ queryKey: ["portfolio"], queryFn: api.portfolio, refetchInterval: 30_000 })
+
+// -- automation ----------------------------------------------------------------
+// The backend rebuilds these on its own timer; the page only has to look.
+// While the first build is still running, poll quickly so it appears as soon
+// as it is ready, then settle to a slow check.
+
+const pollUntilReady = (data: { ready?: boolean } | undefined) => (data?.ready ? 60_000 : 4_000)
+
+// Browsers pause timers in hidden tabs, so also check the moment the user
+// comes back to the tab — they should see the newest results straight away.
+export const useBriefing = () =>
+  useQuery({
+    queryKey: ["briefing"],
+    queryFn: api.briefing,
+    refetchInterval: (query) => pollUntilReady(query.state.data),
+    refetchOnWindowFocus: true,
+  })
+
+export const useAutoExposure = () =>
+  useQuery({
+    queryKey: ["auto-exposure"],
+    queryFn: api.autoExposure,
+    refetchInterval: (query) => pollUntilReady(query.state.data),
+    refetchOnWindowFocus: true,
+  })
+
+export function useRefreshAutomation() {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: api.refreshAutomation,
+    onSuccess: () => {
+      // Check back shortly: the rebuild runs in the background.
+      window.setTimeout(() => {
+        client.invalidateQueries({ queryKey: ["briefing"] })
+        client.invalidateQueries({ queryKey: ["auto-exposure"] })
+      }, 1500)
+    },
+  })
+}
 
 export const useSources = () => useQuery({ queryKey: ["sources"], queryFn: api.sources })
 
@@ -144,6 +184,9 @@ export function usePortfolioMutations() {
   const client = useQueryClient()
   const refresh = () => {
     client.invalidateQueries({ queryKey: ["portfolio"] })
+    // The backend starts rebuilding exposure and the briefing for the new book.
+    client.invalidateQueries({ queryKey: ["briefing"] })
+    client.invalidateQueries({ queryKey: ["auto-exposure"] })
   }
   return {
     add: useMutation({ mutationFn: api.addHolding, onSuccess: refresh }),

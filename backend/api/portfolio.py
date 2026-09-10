@@ -8,6 +8,7 @@ from fastapi import APIRouter, HTTPException
 
 import config
 from src import market, portfolio
+from src.scheduler import automation
 
 from .schemas import HoldingRequest, TopicRequest
 
@@ -30,12 +31,14 @@ def add(request: HoldingRequest) -> dict[str, Any]:
     if not symbol:
         raise HTTPException(404, f"No tradable instrument found for '{request.symbol}'")
     portfolio.add_holding(symbol, request.quantity, request.average_cost)
+    automation().refresh_soon()  # the book changed: rebuild exposure and briefing now
     return read()
 
 
 @router.delete("/holdings/{symbol:path}")
 def remove(symbol: str) -> dict[str, Any]:
     portfolio.remove_holding(symbol)
+    automation().refresh_soon()
     return read()
 
 

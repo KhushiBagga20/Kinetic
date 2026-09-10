@@ -119,8 +119,33 @@ WEIGHT_TECHNICAL = _float("KINETIC_WEIGHT_TECHNICAL", 0.40)
 WEIGHT_SENTIMENT = _float("KINETIC_WEIGHT_SENTIMENT", 0.25)
 WEIGHT_FUNDAMENTAL = _float("KINETIC_WEIGHT_FUNDAMENTAL", 0.25)
 WEIGHT_DOCUMENTS = _float("KINETIC_WEIGHT_DOCUMENTS", 0.10)
+WEIGHT_MARKET = _float("KINETIC_WEIGHT_MARKET", 0.15)   # the broad market's own trend
 MIN_CONFIDENCE = _float("KINETIC_MIN_CONFIDENCE", 35.0)
 FORECAST_HORIZON_DAYS = _int("KINETIC_FORECAST_HORIZON_DAYS", 10)
+
+
+# Simulation and backtest (see src/simulation.py).
+SIMULATION_PATHS = _int("KINETIC_SIMULATION_PATHS", 2000)      # Monte Carlo paths per forecast
+SIMULATION_HISTORY = _str("KINETIC_SIMULATION_HISTORY", "2y")  # history the paths are drawn from
+BACKTEST_STEP = _int("KINETIC_BACKTEST_STEP", 5)               # sessions between backtest checkpoints
+
+
+# ─── Automation ───────────────────────────────────────────────────────────────
+# The background loop keeps every page's data ready so nobody has to search.
+# Quotes refresh on the fast cycle; news, themes, exposure, forecasts and the
+# written briefing refresh on the slow cycle.
+AUTOMATION_ENABLED = _bool("KINETIC_AUTOMATION", True)
+AUTO_FAST_SEC = _int("KINETIC_AUTO_FAST_SEC", 60)
+AUTO_SLOW_SEC = _int("KINETIC_AUTO_SLOW_SEC", 300)
+AUTO_THEMES = _int("KINETIC_AUTO_THEMES", 6)                   # themes detected per cycle
+AUTO_LOAD_MODEL = _bool("KINETIC_AUTO_LOAD_MODEL", True)       # load Gemma in the background at start
+
+# Macro themes that are always checked, alongside the ones found in today's news.
+BASELINE_THEMES = _list(
+    "KINETIC_BASELINE_THEMES",
+    "interest rate changes,oil and energy prices,rupee and currency moves,"
+    "AI and technology spending,consumer demand slowdown,government regulation and policy",
+)
 
 
 # ─── MCP server ───────────────────────────────────────────────────────────────

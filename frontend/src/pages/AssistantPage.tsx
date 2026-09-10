@@ -54,14 +54,23 @@ export function AssistantPage() {
   const [live, setLive] = useState<Message | null>(null)
   const [stage, setStage] = useState("")
   const [showThought, setShowThought] = useState(false)
-  const bottom = useRef<HTMLDivElement>(null)
+  const scroller = useRef<HTMLDivElement>(null)
+  const stickToBottom = useRef(true)
   const finalRef = useRef<Message | null>(null)
+  const abortRef = useRef<AbortController | null>(null)
 
   const loaded = status?.model.loaded ?? false
 
+  // The transcript scrolls inside its own box, so the answer can never slide
+  // underneath the composer. It follows new text only while the reader is
+  // already at the bottom — scrolling up to re-read is never yanked away.
   useEffect(() => {
-    bottom.current?.scrollIntoView({ behavior: "smooth", block: "end" })
-  }, [messages, live?.content, stage])
+    const box = scroller.current
+    if (box && stickToBottom.current) box.scrollTop = box.scrollHeight
+  }, [messages, live?.content, live?.tools?.length, live?.passages?.length, stage])
+
+  // Leaving the page mid-answer stops the stream instead of leaking it.
+  useEffect(() => () => abortRef.current?.abort(), [])
 
   const send = useCallback(
     async (question: string) => {
@@ -74,10 +83,14 @@ export function AssistantPage() {
       setMessages((prior) => [...prior, { role: "user", content: question }])
       setDraft("")
       setBusy(true)
+      stickToBottom.current = true
 
       const draftReply: Message = { role: "assistant", content: "", tools: [], passages: [] }
       finalRef.current = draftReply
       setLive({ ...draftReply })
+
+      const controller = new AbortController()
+      abortRef.current = controller
 
       try {
         await streamChat(question, (event: AgentEvent) => {
@@ -121,10 +134,11 @@ export function AssistantPage() {
             finalRef.current = next
             return next
           })
-        })
+        }, controller.signal)
       } catch (error) {
-        toast.error(String(error))
+        if (!controller.signal.aborted) toast.error(String(error))
       } finally {
+        abortRef.current = null
         // The finished turn is committed here, outside any state updater:
         // updaters run twice under StrictMode and would duplicate the message.
         const finished = finalRef.current
@@ -153,8 +167,10 @@ export function AssistantPage() {
   )
 
   return (
-    <div className="mx-auto flex max-w-4xl flex-col gap-5">
-      <Rise className="flex items-center justify-between">
+    // A fixed-height column: header on top, transcript scrolling in the
+    // middle, composer pinned at the bottom. Nothing can overlap anything.
+    <div className="mx-auto flex h-[calc(100dvh-15.5rem)] min-h-[26rem] max-w-4xl flex-col gap-4">
+      <Rise className="flex shrink-0 items-center justify-between">
         <div>
           <h1 className="text-[1.8rem] font-semibold tracking-[-0.035em] text-ink">Assistant</h1>
           <p className="mt-1 flex items-center gap-1.5 text-[0.76rem] text-ink-muted">
@@ -178,21 +194,35 @@ export function AssistantPage() {
       </Rise>
 
       {!loaded && (
-        <Rise className="glass flex flex-wrap items-center gap-4 border-lime/20 bg-lime/[0.04] p-5">
+        <Rise className="glass flex shrink-0 flex-wrap items-center gap-4 border-lime/20 bg-lime/[0.04] p-5">
           <Cpu className="size-5 text-lime" strokeWidth={1.7} />
           <div className="flex-1">
-            <h2 className="text-[0.92rem] font-medium text-ink">Gemma 4 is not loaded yet</h2>
+            <h2 className="text-[0.92rem] font-medium text-ink">
+              {status?.model.loading ? "Gemma 4 is loading in the background" : "Gemma 4 is not loaded yet"}
+            </h2>
             <p className="mt-1 text-[0.79rem] leading-relaxed text-ink-muted">
               26B parameters, 4-bit, on Apple Silicon. About a minute and 15 GB of unified memory —
               and then nothing you ask it leaves this laptop.
             </p>
           </div>
-          <Button onClick={() => loadModel.mutate("load")} disabled={loadModel.isPending}>
-            {loadModel.isPending ? "Loading…" : "Load model"}
+          <Button
+            onClick={() => loadModel.mutate("load")}
+            disabled={loadModel.isPending || status?.model.loading}
+          >
+            {loadModel.isPending || status?.model.loading ? "Loading…" : "Load model"}
           </Button>
         </Rise>
       )}
 
+      {/* -- transcript: the only part of the page that scrolls -------------- */}
+      <div
+        ref={scroller}
+        onScroll={(event) => {
+          const box = event.currentTarget
+          stickToBottom.current = box.scrollHeight - box.scrollTop - box.clientHeight < 120
+        }}
+        className="min-h-0 flex-1 space-y-5 overflow-y-auto overscroll-contain pr-1"
+      >
       {messages.length === 0 && !live && (
         <Rise delay={0.05} className="grid gap-2 sm:grid-cols-2">
           {suggestions.map((question, index) => (
@@ -238,17 +268,17 @@ export function AssistantPage() {
             </motion.div>
           )}
         </AnimatePresence>
-        <div ref={bottom} />
+      </div>
       </div>
 
-      {/* -- composer ------------------------------------------------------- */}
-      <div className="sticky bottom-24 z-10">
+      {/* -- composer: a normal block under the transcript, never floating --- */}
+      <div className="shrink-0">
         <form
           onSubmit={(event) => {
             event.preventDefault()
             send(draft)
           }}
-          className="glass flex items-end gap-2 p-2"
+          className="glass flex items-end gap-2 bg-raised p-2"
         >
           <Textarea
             value={draft}
@@ -286,7 +316,7 @@ function MessageBlock({
   if (message.role === "user") {
     return (
       <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="flex justify-end">
-        <div className="max-w-[80%] rounded-2xl rounded-br-md border border-lime/20 bg-lime/[0.08] px-4 py-2.5 text-[0.88rem] text-ink">
+        <div className="max-w-[80%] whitespace-pre-wrap rounded-2xl rounded-br-md border border-lime/20 bg-lime/[0.08] px-4 py-2.5 text-[0.88rem] text-ink [overflow-wrap:anywhere]">
           {message.content}
         </div>
       </motion.div>
@@ -294,7 +324,7 @@ function MessageBlock({
   }
 
   return (
-    <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="space-y-2.5">
+    <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="min-w-0 space-y-2.5">
       {/* retrieved sources */}
       {!!message.passages?.length && (
         <div className="flex flex-wrap gap-1.5">
@@ -363,7 +393,7 @@ function MessageBlock({
       )}
 
       {/* the answer */}
-      <div className="rounded-2xl rounded-bl-md border border-border/60 border-l-lime/50 bg-white/[0.015] px-4 py-3">
+      <div className="min-w-0 rounded-2xl rounded-bl-md border border-border/60 border-l-lime/50 bg-white/[0.015] px-4 py-3">
         <Answer content={message.content} streaming={streaming} />
       </div>
 

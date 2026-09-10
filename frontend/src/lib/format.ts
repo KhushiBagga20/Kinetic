@@ -54,6 +54,13 @@ export function ago(stamp: string): string {
   return `${Math.round(seconds / 86400)}d ago`
 }
 
+/** Text colour for a forecast signal such as "LEANING BULLISH". */
+export function signalTone(signal: string): string {
+  if (signal.includes("BULL")) return "text-lime"
+  if (signal.includes("BEAR")) return "text-ember"
+  return "text-ink-muted"
+}
+
 export function titleCase(text: string): string {
   return text.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())
 }

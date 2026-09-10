@@ -372,3 +372,87 @@ def get_forecast(symbol: str, horizon_days: int = 0) -> str:
         for note in leg.notes[:3]:
             text += f"\n  · {leg.name}: {note}"
     return text
+
+
+@tool(
+    description=(
+        "Run a Monte Carlo price simulation for a symbol: thousands of possible "
+        "futures replayed from its own past daily returns, giving the chance of "
+        "ending higher, the median and the 90% price range, plus a walk-forward "
+        "backtest of how often the signal was right before. Use when the user "
+        "asks for a price prediction, target, odds or 'where could it be'. "
+        "Always pass on that it is not a guarantee."
+    ),
+    parameters={
+        "symbol": {"type": "string", "description": "Ticker symbol."},
+        "horizon_days": {"type": "integer", "description": "Trading sessions to simulate (default 10)."},
+    },
+    required=["symbol"],
+)
+def simulate_price(symbol: str, horizon_days: int = 0) -> str:
+    result = prediction.forecast(symbol, horizon_days=int(horizon_days) or None)
+    if result is None:
+        return f"Could not simulate '{symbol}' — no live market data."
+    sim, tested = result.simulation, result.backtest
+    if not sim:
+        return f"Not enough price history to simulate {symbol.upper()}."
+    cur = result.currency
+    lines = [
+        f"Monte Carlo simulation for {result.name} ({result.symbol}), {sim['horizon']} sessions, "
+        f"{sim['paths']} paths, generated {result.as_of}:",
+        f"- start price {sim['start_price']:,.2f} {cur}",
+        f"- chance of ending higher: {sim['probability_up'] * 100:.0f}%",
+        f"- chance of gaining 5% or more: {sim['probability_up_5'] * 100:.0f}%; "
+        f"of losing 5% or more: {sim['probability_down_5'] * 100:.0f}%",
+        f"- median outcome {sim['median_price']:,.2f} {cur}; likely (68%) range "
+        f"{sim['low_16']:,.2f} – {sim['high_84']:,.2f} {cur}; 90% range "
+        f"{sim['low_5']:,.2f} – {sim['high_95']:,.2f} {cur}",
+        f"- ensemble signal {result.signal}, confidence {result.confidence:.0f}%",
+    ]
+    if tested.get("available"):
+        lines.append(
+            f"- backtest: {tested['note']}; the likely range contained the real outcome "
+            f"{tested['band_coverage'] * 100:.0f}% of the time"
+        )
+    lines.append(result.guarantee)
+    return "\n".join(lines)
+
+
+# ─── Automation tools ─────────────────────────────────────────────────────────
+
+@tool(
+    description=(
+        "Read the automatic exposure scan: the themes in today's live news "
+        "(found automatically) and which of the user's holdings each one "
+        "touches, whether it is a tailwind or a headwind, and how much of the "
+        "book is affected. Use for 'what in the news affects me today', 'what "
+        "are my risks right now', or any exposure question without a named topic."
+    ),
+    parameters={},
+    required=[],
+)
+def get_automatic_exposure() -> str:
+    from src import exposure
+    from src.scheduler import automation
+
+    latest = automation().latest()
+    report = latest["exposure"] if latest else exposure.auto_report()
+    return exposure.to_text(report)
+
+
+@tool(
+    description=(
+        "Read the user's automatic daily briefing: portfolio value and today's "
+        "move, holdings that need attention, today's themes and exposure, a "
+        "simulated outlook for each holding, and the market's indices and "
+        "movers. Use for 'brief me', 'what should I know today', or 'summary'."
+    ),
+    parameters={},
+    required=[],
+)
+def get_daily_briefing() -> str:
+    from src import briefing
+    from src.scheduler import automation
+
+    latest = automation().latest() or briefing.build(write_note=False)
+    return f"Briefing generated {latest['generated_at']}:\n" + briefing._context_text(latest)

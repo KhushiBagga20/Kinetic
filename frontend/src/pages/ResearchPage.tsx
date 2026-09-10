@@ -209,6 +209,9 @@ export function ResearchPage() {
         )
       )}
 
+      {/* -- prediction: runs on its own, right under the price ------------- */}
+      {symbol && <ForecastPanel key={symbol} symbol={symbol} />}
+
       <div className="grid items-start gap-5 lg:grid-cols-[1.55fr_1fr]">
         {/* -- chart -------------------------------------------------------- */}
         <Rise delay={0.05} className="glass p-4">
@@ -277,8 +280,6 @@ export function ResearchPage() {
           </Stagger>
         </Rise>
       </div>
-
-      <ForecastPanel symbol={symbol} />
 
       {/* -- news ----------------------------------------------------------- */}
       <Rise delay={0.15} className="glass p-5">

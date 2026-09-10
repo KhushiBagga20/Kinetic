@@ -15,7 +15,9 @@ import { StatCard } from "@/components/market/StatCard"
 import { NumberFlow } from "@/components/ui/number-flow"
 import { Rise, Stagger, StaggerItem } from "@/components/ui/motion-primitives"
 import { Button } from "@/components/ui/button"
+import { Skeleton } from "@/components/ui/skeleton"
 import { Onboarding } from "@/components/layout/Onboarding"
+import { Briefing } from "@/components/home/Briefing"
 import {
   useIndices,
   useMovers,
@@ -70,9 +72,9 @@ function useAttention() {
 
 export function HomePage() {
   const navigate = useNavigate()
-  const { data: prefs } = usePreferences()
+  const { data: prefs, isLoading: prefsLoading } = usePreferences()
   const { data: status } = useStatus()
-  const { data: portfolio } = usePortfolio()
+  const { data: portfolio, isLoading: portfolioLoading } = usePortfolio()
   const { data: indices = [] } = useIndices()
   const { data: movers = [] } = useMovers("day_gainers")
   const { data: session } = useSession(status?.settings.default_symbol)
@@ -101,6 +103,20 @@ export function HomePage() {
   const ask = (question: string) =>
     navigate(`/assistant?q=${encodeURIComponent(question)}`)
 
+  // Wait until we actually know — otherwise onboarding flashes on every reload.
+  if (prefsLoading || portfolioLoading) {
+    return (
+      <div className="space-y-6">
+        <Skeleton className="h-12 w-72 rounded-lg" />
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          {[0, 1, 2, 3].map((index) => (
+            <Skeleton key={index} className="h-[92px] rounded-xl" />
+          ))}
+        </div>
+        <Skeleton className="h-56 rounded-xl" />
+      </div>
+    )
+  }
   if (!setUp) return <Onboarding />
 
   return (
@@ -182,6 +198,9 @@ export function HomePage() {
           </StaggerItem>
         </Stagger>
       )}
+
+      {/* -- automatic briefing: already written when the page opens -------- */}
+      <Briefing />
 
       <div className="grid items-start gap-5 lg:grid-cols-[1.4fr_1fr]">
         {/* -- attention --------------------------------------------------- */}

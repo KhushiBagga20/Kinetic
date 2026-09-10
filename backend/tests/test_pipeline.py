@@ -191,6 +191,84 @@ def test_blended_average_cost_on_topping_up(monkeypatch, tmp_path) -> None:
     assert holding.average_cost == pytest.approx(2500.0)
 
 
+# ─── Simulation and backtest (synthetic prices) ───────────────────────────────
+
+def _synthetic_history(days: int = 400, drift: float = 0.0, seed: int = 3):
+    import numpy as np
+    import pandas as pd
+
+    rng = np.random.default_rng(seed)
+    close = 100 * np.exp(np.cumsum(rng.normal(drift, 0.012, days)))
+    index = pd.date_range("2024-01-01", periods=days, freq="B")
+    return pd.DataFrame(
+        {"Open": close, "High": close * 1.01, "Low": close * 0.99, "Close": close, "Volume": 1_000_000},
+        index=index,
+    )
+
+
+def test_monte_carlo_bands_are_ordered_and_odds_are_sane() -> None:
+    import numpy as np
+    from src import simulation
+
+    returns = np.random.default_rng(1).normal(0, 0.01, 400)
+    flat = simulation.monte_carlo(100.0, returns, 10, paths=800)
+    assert len(flat["bands"]) == 11  # day 0 plus 10 sessions
+    last = flat["bands"][-1]
+    assert last["p5"] <= last["p16"] <= last["p50"] <= last["p84"] <= last["p95"]
+    assert 0.35 < flat["probability_up"] < 0.65, "no drift should be close to a coin flip"
+
+    tilted = simulation.monte_carlo(100.0, returns, 10, drift_per_day=0.003, paths=800)
+    assert tilted["probability_up"] > flat["probability_up"]
+
+
+def test_monte_carlo_refuses_thin_history() -> None:
+    import numpy as np
+    from src import simulation
+
+    assert simulation.monte_carlo(100.0, np.zeros(10), 10) == {}
+    assert simulation.monte_carlo(None, np.zeros(100), 10) == {}
+
+
+def test_backtest_reports_skill_in_range() -> None:
+    from src import simulation
+
+    result = simulation.backtest(_synthetic_history(), horizon=10)
+    assert result["available"]
+    assert 0.0 <= result["skill"] <= 1.0
+    assert 0.0 <= result["hit_rate"] <= 1.0
+    assert 0.0 <= result["band_coverage"] <= 1.0
+
+
+def test_backtest_needs_enough_history() -> None:
+    from src import simulation
+
+    assert not simulation.backtest(_synthetic_history(days=50), horizon=10)["available"]
+
+
+# ─── Themes and exposure ──────────────────────────────────────────────────────
+
+def test_keyword_themes_match_whole_words() -> None:
+    from src.market import Article
+    from src.themes import keyword_themes
+
+    def headline(title: str) -> Article:
+        return Article(title=title, publisher="t", published="", url="", summary="", provider="t")
+
+    found = keyword_themes([headline("RBI holds repo rate steady"), headline("Company said profits rose")])
+    names = [item["theme"] for item in found]
+    assert "interest rate changes" in names
+    assert "AI and technology spending" not in names, "'ai' must not match inside 'said'"
+
+
+def test_exposure_direction_labels() -> None:
+    from src.exposure import _direction
+
+    assert _direction(0.4, True) == "tailwind"
+    assert _direction(-0.4, True) == "headwind"
+    assert _direction(0.05, True) == "mixed"
+    assert _direction(0.9, False) == "watch"
+
+
 if __name__ == "__main__":
     import pytest
 

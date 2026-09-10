@@ -129,6 +129,162 @@ export interface Forecast {
   drivers: string[]
   data_quality: string
   as_of: string
+  probability_up: number | null
+  skill: number
+  simulation: Simulation | Record<string, never>
+  backtest: Backtest
+  guarantee: string
+}
+
+/** One day of the Monte Carlo fan: price percentiles across all paths. */
+export interface SimulationBand {
+  day: number
+  p5: number
+  p16: number
+  p25: number
+  p50: number
+  p75: number
+  p84: number
+  p95: number
+}
+
+export interface Simulation {
+  paths: number
+  horizon: number
+  start_price: number
+  daily_volatility: number
+  drift_per_day: number
+  probability_up: number
+  probability_up_5: number
+  probability_down_5: number
+  expected_price: number
+  median_price: number
+  low_5: number
+  high_95: number
+  low_16: number
+  high_84: number
+  bands: SimulationBand[]
+  sample_paths: number[][]
+}
+
+export interface Backtest {
+  available: boolean
+  skill: number
+  note: string
+  checkpoints?: number
+  calls?: number
+  hit_rate?: number
+  base_rate_up?: number
+  band_coverage?: number
+  correlation?: number
+  avg_return_bullish?: number | null
+  avg_return_bearish?: number | null
+  horizon?: number
+}
+
+// ─── Automation ──────────────────────────────────────────────────────────────
+
+export type ExposureDirection = "tailwind" | "headwind" | "mixed" | "watch"
+
+export interface ExposureEvidence {
+  title: string
+  publisher: string
+  published: string
+  url: string
+  sentiment: number
+}
+
+export interface ThemeMatch {
+  symbol: string
+  name: string
+  weight: number
+  score: number
+  relevance: number
+  news_link: number
+  tone: number
+  direction: ExposureDirection
+  beta: number
+  impact: number
+  day_change_percent: number | null
+  sector: string
+  evidence: ExposureEvidence[]
+}
+
+export interface ExposureTheme {
+  theme: string
+  source: "model" | "news" | "baseline"
+  headline_count: number
+  headlines: string[]
+  book_share: number
+  impact: number
+  tone: number
+  direction: ExposureDirection
+  holdings: ThemeMatch[]
+}
+
+export interface HoldingExposure {
+  symbol: string
+  name: string
+  weight: number
+  day_change_percent: number | null
+  themes: { theme: string; score: number; direction: ExposureDirection }[]
+  headwinds: number
+  tailwinds: number
+}
+
+export interface ExposureReport {
+  themes: ExposureTheme[]
+  holdings: HoldingExposure[]
+  top_risk?: string | null
+  as_of: string
+  empty: boolean
+}
+
+export interface AutomationStatus {
+  enabled: boolean
+  running: boolean
+  building: boolean
+  cycles: number
+  fast_every_sec: number
+  slow_every_sec: number
+  last_quotes: string | null
+  last_rebuild: string | null
+  next_rebuild: string | null
+  last_error: string
+  has_briefing: boolean
+}
+
+export interface BriefingForecast {
+  symbol: string
+  name: string
+  price: number | null
+  currency: string
+  signal: string
+  confidence: number
+  risk_score: number
+  risk_label: string
+  horizon_days: number
+  probability_up: number | null
+  expected_low: number | null
+  expected_high: number | null
+  median_price: number | null
+  skill: number
+}
+
+export interface Briefing {
+  ready: boolean
+  automation: AutomationStatus
+  generated_at?: string
+  summary?: PortfolioSummary
+  best?: Position | null
+  worst?: Position | null
+  attention?: { symbol: string; kind: "move" | "loss" | "risk"; reason: string }[]
+  exposure?: ExposureReport
+  forecasts?: BriefingForecast[]
+  market?: { indices: Quote[]; gainers: Mover[]; losers: Mover[] }
+  note?: string
+  note_status?: string
+  disclaimer?: string
 }
 
 export interface Passage {
@@ -163,6 +319,7 @@ export interface SystemStatus {
   model: {
     model: string
     loaded: boolean
+    loading?: boolean
     load_seconds: number
     error: string
     backend: string

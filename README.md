@@ -29,15 +29,45 @@ your filings, not your questions.
 
 | View | What it gives you |
 | --- | --- |
-| **Home** | Your book, priced live: value, today's move, your best and weakest position, what is worth a look (a sharp move, a position far under water, a concentration above 40%), and your watchlist — every row one click from full research. |
-| **Portfolio** | Holdings with live P&L, weights after FX conversion, sector mix, and an **exposure check**: describe an event in plain words and each holding's live profile is embedded on-device and matched against it, so "rupee weakness" finds the right positions without a keyword rule. |
-| **Research** | Live index ribbon, live quotes, candles with moving averages, technical read-out, live headlines and live screener tables — plus the forecast engine, on the same symbol. Any symbol can be captured into the vector store in one click. |
+| **Home** | Your book, priced live, plus an **automatic briefing**: a short note written by the local model, today's themes in your book, and a simulated outlook for every holding — already there when you open the app. Then what is worth a look (a sharp move, a position far under water, a concentration above 40%) and today's movers. |
+| **Portfolio** | Holdings with live P&L, weights after FX conversion, sector mix, and a **live exposure radar** that fills itself in: themes are found in today's news, and every holding is scored against each one for relevance, news link, headline tone, size and beta — tailwind, headwind, mixed or watch, with the headlines as evidence. A manual scenario box is still there for anything the radar did not pick up. |
+| **Research** | Live quotes, candles with moving averages, technical read-out and live headlines — plus **price prediction & simulation**, which runs on its own: a five-signal ensemble, 2,000 Monte Carlo futures drawn as a fan chart, and a walk-forward backtest of how often the signal was right on that stock. Always labelled *no guarantee*. |
 | **Assistant** | A streaming chat that retrieves before it answers, reads your actual holdings when you say "my", calls live tools when it needs a current number, and labels every figure as live data or as coming from a named document. |
 | **Knowledge** | Upload and manage the corpus, capture live snapshots, browse what is indexed, and run the retriever on its own to see exactly which passages a query returns. |
 
-The forecast engine is a four-leg ensemble — technical, news sentiment,
-fundamentals, your documents — with per-leg scores, a confidence read, a 1–10
-risk score and a volatility-implied range. It lives in the Research view.
+## Automation
+
+The app keeps itself up to date, so there is nothing to search for again and
+again. A background loop (`src/scheduler.py`) starts with the backend:
+
+| When | What |
+| --- | --- |
+| at start | the local model loads in the background (`KINETIC_AUTO_LOAD_MODEL`) |
+| every 60 s | live quotes for your holdings, watchlist and indices |
+| every 5 min | themes from today's news, the exposure radar, a forecast per holding, and the written briefing |
+| on change | adding or removing a holding triggers a rebuild straight away |
+
+Pages read the latest results instantly from `/api/auto/*`. Everything except
+the written note works without the model; the note appears on its own once the
+model has loaded. Set `KINETIC_AUTOMATION=false` to turn the loop off.
+
+## Prediction, and how honest it is
+
+The forecast is a five-leg ensemble — technical, news sentiment, fundamentals,
+market regime (the index trend scaled by beta) and your documents — with
+per-leg scores, a confidence read and a 1–10 risk score. On top of it
+(`src/simulation.py`):
+
+- **Monte Carlo** — 2,000 futures built by replaying blocks of the stock's own
+  past daily returns, scaled to today's volatility. Gives the chance of ending
+  higher, the middle outcome, and 68% / 90% ranges.
+- **Walk-forward backtest** — the signal is replayed over two years of history
+  using only data available at each point, then checked against what happened.
+  Its hit rate decides how much the simulation leans with the signal: a coin
+  flip gets almost no tilt, so the range, not the direction, is the message.
+
+None of it is a guarantee, and the interface says so wherever a prediction is
+shown.
 
 ## Personal, and private by construction
 
@@ -111,11 +141,12 @@ native tool calls parsed straight from the token stream.
 
 ## Tools
 
-Eleven tools back both the assistant and the MCP server, from one registry
+Fourteen tools back both the assistant and the MCP server, from one registry
 (`src/tools.py`): `resolve_ticker`, `get_stock_quote`, `get_price_history`,
 `get_company_fundamentals`, `get_market_news`, `get_market_movers`,
 `search_documents`, `index_live_market_data`, `get_portfolio`,
-`get_portfolio_exposure`, `get_forecast`.
+`get_portfolio_exposure`, `get_forecast`, `simulate_price`,
+`get_automatic_exposure`, `get_daily_briefing`.
 
 Serve them to any MCP client:
 
@@ -153,7 +184,7 @@ backend/
   main.py               FastAPI app: CORS, routers, health
   config.py             every setting, all overridable from .env
   api/                  one router per area, thin shells over src/
-    market.py  portfolio.py  knowledge.py  chat.py  system.py  schemas.py
+    market.py  portfolio.py  knowledge.py  chat.py  system.py  automation.py  schemas.py
   src/
     llm.py              MLX Gemma engine: streaming, tool-call parsing
     agent.py            retrieve → reason → act loop, emitted as events
@@ -161,7 +192,12 @@ backend/
     portfolio.py        local holdings, live pricing, semantic exposure
     preferences.py      profile and accessibility settings, stored locally
     indicators.py       RSI, MACD, moving averages, bands, volatility
-    prediction.py       the four-leg ensemble forecast
+    prediction.py       the five-leg ensemble forecast
+    simulation.py       Monte Carlo price paths and the walk-forward backtest
+    themes.py           finds today's themes in live headlines
+    exposure.py         automatic exposure: themes × holdings, with direction
+    briefing.py         the daily briefing, assembled from all of the above
+    scheduler.py        the background loop that keeps everything fresh
     mcp_server.py       MCP entry point
     market/             live quotes, history, fundamentals, news, screeners, FX
     rag/                chunking, embeddings, ChromaDB store, hybrid retriever
@@ -173,7 +209,9 @@ frontend/
     pages/              Home, Portfolio, Research, Assistant, Knowledge
     components/
       layout/           dock, top bar, ticker, ⌘K search, onboarding
-      market/           price chart, forecast panel, stat card, delta
+      market/           price chart, forecast + simulation panels, stat card, delta
+      portfolio/        the live exposure radar
+      home/             the automatic briefing
       chat/             markdown answer renderer, in-chat charts
       ui/               shadcn/ui primitives + motion primitives
     hooks/              React Query data layer

@@ -21,15 +21,22 @@ from dataclasses import dataclass, field, asdict
 from datetime import datetime, timezone
 from typing import Any
 
+import threading
+
 import numpy as np
+from cachetools import TTLCache
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 
 import config
-from src import indicators
+from src import indicators, simulation
 from src.market import get_fundamentals, get_history, get_news, get_quote
 from src.rag import retrieve
 
 _vader = SentimentIntensityAnalyzer()
+
+# Finished forecasts, kept as long as the price history they were built from.
+_forecast_cache: TTLCache = TTLCache(maxsize=128, ttl=config.HISTORY_TTL_SEC)
+_forecast_lock = threading.Lock()
 
 # VADER was trained on general English; these carry specific meaning in markets.
 FINANCE_LEXICON = {
@@ -80,6 +87,12 @@ class Forecast:
     data_quality: str
     as_of: str
     disclaimer: str = config.DISCLAIMER
+    # Added by the simulation engine (src/simulation.py).
+    probability_up: float | None = None
+    skill: float = 0.0
+    simulation: dict[str, Any] = field(default_factory=dict)
+    backtest: dict[str, Any] = field(default_factory=dict)
+    guarantee: str = "No guarantee. This is a statistical estimate, not a promise of any price."
 
     def as_dict(self) -> dict[str, Any]:
         payload = asdict(self)
@@ -97,16 +110,27 @@ class Forecast:
             lines.append(f"last price: {self.price:,.2f} {self.currency}")
         if self.expected_low is not None:
             lines.append(
-                f"{self.horizon_days}-session 1-sigma range: "
+                f"{self.horizon_days}-session likely range: "
                 f"{self.expected_low:,.2f} – {self.expected_high:,.2f} {self.currency} "
-                f"(≈68% of historical outcomes, from realised volatility)"
+                f"(≈68% of simulated outcomes)"
             )
+        sim = self.simulation
+        if sim:
+            lines.append(
+                f"Monte Carlo ({sim['paths']} paths from real past returns): "
+                f"{sim['probability_up'] * 100:.0f}% chance of ending higher; "
+                f"median {sim['median_price']:,.2f}, 90% range "
+                f"{sim['low_5']:,.2f} – {sim['high_95']:,.2f} {self.currency}"
+            )
+        if self.backtest.get("available"):
+            lines.append(f"backtest: {self.backtest['note']} (skill {self.skill:.2f} on 0..1)")
         for leg in self.legs.values():
             state = f"{leg.score:+.2f} at {leg.weight * 100:.0f}% weight" if leg.available else "no data"
             lines.append(f"- {leg.name}: {state}")
         if self.drivers:
             lines.append("key drivers: " + "; ".join(self.drivers))
         lines.append(f"data quality: {self.data_quality}")
+        lines.append(self.guarantee)
         return "\n".join(lines)
 
 
@@ -283,6 +307,37 @@ def _document_leg(symbol: str, company: str) -> Leg:
     return leg
 
 
+def _market_index(symbol: str) -> str:
+    """The broad index a symbol trades against: Nifty for Indian listings, S&P 500 otherwise."""
+    return "^NSEI" if symbol.endswith((".NS", ".BO")) else "^GSPC"
+
+
+def _market_leg(symbol: str, fundamentals: dict[str, Any]) -> Leg:
+    """
+    Most stocks move with their market. Score the index's own trend and scale
+    it by the stock's beta (how strongly it usually follows the index).
+    """
+    leg = Leg(name="Market regime")
+    index = _market_index(symbol)
+    if symbol == index:
+        leg.notes.append("This is the index itself")
+        return leg
+    history = get_history(index)
+    if history is None or history.empty or len(history) < 30:
+        leg.notes.append(f"No history for the {index} index")
+        return leg
+
+    trend = indicators.technical_score(indicators.compute_all(history))
+    beta = fundamentals.get("beta") or 1.0
+    beta = max(0.3, min(2.0, float(beta)))
+    leg.score = _clamp(trend * beta)
+    leg.available = True
+    leg.detail = {"index": index, "index_score": round(trend, 3), "beta": round(beta, 2)}
+    mood = "rising" if trend > 0.05 else "falling" if trend < -0.05 else "flat"
+    leg.notes.append(f"{index} trend is {mood} ({trend:+.2f}); this stock's beta is {beta:.2f}")
+    return leg
+
+
 # ─── Ensemble ─────────────────────────────────────────────────────────────────
 
 def _risk(history, fundamentals: dict[str, Any], confidence: float) -> tuple[int, str, float]:
@@ -323,13 +378,31 @@ def _classify(direction: float, confidence: float, legs: dict[str, Leg]) -> str:
 
 
 def forecast(symbol: str, horizon_days: int | None = None) -> Forecast | None:
-    """Build a full forecast for one symbol from live data only."""
+    """
+    Build a full forecast for one symbol from live data only.
+
+    Results are cached for a few minutes: the inputs (history, news,
+    fundamentals) are cached for that long anyway, and the backtest and
+    simulation are the slow part.
+    """
     symbol = symbol.strip().upper()
+    horizon = int(horizon_days or config.FORECAST_HORIZON_DAYS)
+    key = (symbol, horizon)
+    with _forecast_lock:
+        if key in _forecast_cache:
+            return _forecast_cache[key]
+    result = _build_forecast(symbol, horizon)
+    if result is not None:
+        with _forecast_lock:
+            _forecast_cache[key] = result
+    return result
+
+
+def _build_forecast(symbol: str, horizon: int) -> Forecast | None:
     quote = get_quote(symbol)
     if quote is None:
         return None
 
-    horizon = horizon_days or config.FORECAST_HORIZON_DAYS
     history = get_history(symbol)
     fundamentals = get_fundamentals(symbol)
 
@@ -337,12 +410,14 @@ def forecast(symbol: str, horizon_days: int | None = None) -> Forecast | None:
         "technical": _technical_leg(history),
         "sentiment": _sentiment_leg(symbol),
         "fundamental": _fundamental_leg(symbol, quote.price),
+        "market": _market_leg(symbol, fundamentals),
         "documents": _document_leg(symbol, quote.name),
     }
     configured = {
         "technical": config.WEIGHT_TECHNICAL,
         "sentiment": config.WEIGHT_SENTIMENT,
         "fundamental": config.WEIGHT_FUNDAMENTAL,
+        "market": config.WEIGHT_MARKET,
         "documents": config.WEIGHT_DOCUMENTS,
     }
 
@@ -353,18 +428,41 @@ def forecast(symbol: str, horizon_days: int | None = None) -> Forecast | None:
 
     direction = _clamp(sum(leg.score * leg.weight for leg in legs.values()))
 
-    # Confidence answers "how much do we trust this read?", which is about the
-    # legs agreeing and the data being complete — not about the score being big.
+    # Backtest the technical signal on two years of this stock's own history.
+    # Its hit rate says how far this kind of signal can be trusted here.
+    long_history = get_history(symbol, period=config.SIMULATION_HISTORY)
+    tested = simulation.backtest(long_history, horizon)
+    skill = float(tested.get("skill", 0.0))
+
+    # Confidence answers "how much do we trust this read?": the legs agreeing,
+    # the data being complete, the signal being clear, and the signal having
+    # worked on this stock before.
     active = [leg.score for leg in legs.values() if leg.available]
     coverage = available_weight / sum(configured.values())
     agreement = 1.0 - min(1.0, float(np.std(active)) if len(active) > 1 else 0.6)
     strength = min(1.0, abs(direction) / 0.4)
-    confidence = float(np.clip(100 * (0.5 * agreement + 0.3 * coverage + 0.2 * strength), 0, 95))
+    track_record = skill if tested.get("available") else 0.3
+    confidence = float(
+        np.clip(100 * (0.4 * agreement + 0.25 * coverage + 0.15 * strength + 0.2 * track_record), 0, 95)
+    )
 
     risk_score, risk_label, daily_vol = _risk(history, fundamentals, confidence)
 
+    # Monte Carlo: thousands of futures replayed from real past returns. The
+    # signal only tilts them a little, and less when the backtest found no skill.
+    returns = simulation.log_returns(long_history if not long_history.empty else history)
+    current_vol = simulation.ewma_volatility(returns) or daily_vol
+    trust = 0.25 + 0.75 * skill
+    drift_per_day = direction * trust * current_vol * 0.15
+    simulated = simulation.monte_carlo(quote.price, returns, horizon, drift_per_day)
+
     expected_low = expected_high = None
-    if quote.price and daily_vol:
+    if simulated:
+        # The 16th-84th percentile is the same ~68% band as before, but now
+        # drawn from real return shapes instead of a bell curve.
+        expected_low = round(simulated["low_16"], 2)
+        expected_high = round(simulated["high_84"], 2)
+    elif quote.price and daily_vol:
         band = quote.price * daily_vol * math.sqrt(horizon)
         drift = quote.price * direction * daily_vol * horizon * 0.5
         expected_low = round(quote.price + drift - band, 2)
@@ -374,6 +472,8 @@ def forecast(symbol: str, horizon_days: int | None = None) -> Forecast | None:
     for leg in sorted(legs.values(), key=lambda l: abs(l.score) * l.weight, reverse=True):
         if leg.available and leg.notes:
             drivers.append(f"{leg.name}: {leg.notes[0]}")
+    if tested.get("available"):
+        drivers.append(f"Track record: {tested['note']}")
     missing = [leg.name for leg in legs.values() if not leg.available]
 
     return Forecast(
@@ -392,8 +492,12 @@ def forecast(symbol: str, horizon_days: int | None = None) -> Forecast | None:
         legs=legs,
         drivers=drivers[:4],
         data_quality=(
-            f"{len(active)}/4 signal legs active"
+            f"{len(active)}/{len(legs)} signal legs active"
             + (f"; missing: {', '.join(missing)}" if missing else "")
         ),
         as_of=datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC"),
+        probability_up=simulated.get("probability_up") if simulated else None,
+        skill=round(skill, 3),
+        simulation=simulated,
+        backtest=tested,
     )
