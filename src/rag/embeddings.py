@@ -1,46 +1,54 @@
 """
-Embeddings — sentence-transformers embedding model for the RAG pipeline.
+Sentence embeddings — a small local model, loaded once, on demand.
 
-Uses all-MiniLM-L6-v2 (384-dimensional):
-    - Fast: ~14ms per query on Apple Silicon
-    - Small: ~80MB model size
-    - Accurate: good performance on semantic similarity tasks
-    - Cached: singleton pattern avoids reloading
-
-For higher accuracy (at cost of speed), consider:
-    - all-mpnet-base-v2 (768-dim, ~40ms/query)
-    - bge-small-en-v1.5 (384-dim, ~15ms/query)
+all-MiniLM-L6-v2 produces 384-dimensional vectors in a few milliseconds per
+query on Apple Silicon, which keeps retrieval well below the latency budget
+of the generation step. Vectors are L2-normalised so cosine similarity is a
+plain dot product.
 """
 
-from typing import Optional
+from __future__ import annotations
 
-from langchain_community.embeddings import HuggingFaceEmbeddings
+import threading
+
+import numpy as np
 
 import config
 
+_model = None
+_lock = threading.Lock()
 
-# ─── Singleton embedding model ───────────────────────────────────────────────
-_embedding_model: Optional[HuggingFaceEmbeddings] = None
+
+def get_model():
+    """Load (once) and return the sentence-transformer model."""
+    global _model
+    if _model is None:
+        with _lock:
+            if _model is None:
+                from sentence_transformers import SentenceTransformer
+
+                _model = SentenceTransformer(config.EMBEDDING_MODEL)
+    return _model
 
 
-def get_embedding_model() -> HuggingFaceEmbeddings:
-    """
-    Get the singleton embedding model instance.
-    Loads the model lazily on first call for fast startup.
+def embed(texts: list[str]) -> list[list[float]]:
+    """Embed a batch of passages."""
+    if not texts:
+        return []
+    vectors = get_model().encode(
+        texts,
+        batch_size=config.EMBEDDING_BATCH_SIZE,
+        normalize_embeddings=True,
+        convert_to_numpy=True,
+        show_progress_bar=False,
+    )
+    return np.asarray(vectors, dtype=np.float32).tolist()
 
-    Returns:
-        HuggingFaceEmbeddings instance using the configured model.
-    """
-    global _embedding_model
-    if _embedding_model is None:
-        print(f"🔄 Loading embedding model: {config.EMBEDDING_MODEL}...")
-        _embedding_model = HuggingFaceEmbeddings(
-            model_name=config.EMBEDDING_MODEL,
-            model_kwargs={"device": "cpu"},   # MPS can be used: "mps"
-            encode_kwargs={
-                "normalize_embeddings": True,  # cosine similarity optimization
-                "batch_size": 64,              # batch for faster bulk embedding
-            },
-        )
-        print(f"✅ Embedding model loaded: {config.EMBEDDING_MODEL}")
-    return _embedding_model
+
+def embed_query(text: str) -> list[float]:
+    """Embed a single query."""
+    return embed([text])[0]
+
+
+def dimensions() -> int:
+    return int(get_model().get_sentence_embedding_dimension())

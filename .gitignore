@@ -61,3 +61,11 @@ data/documents/*.txt
 *.gguf
 *.ggml
 models/
+
+# Kinetic local state
+data/vector_store/
+chroma_db/
+
+# Personal data — holdings and preferences never leave this machine
+data/portfolio.json
+data/preferences.json

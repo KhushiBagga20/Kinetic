@@ -1,190 +1,209 @@
 """
-Personal Investment Research Agent — Main Streamlit Application
+Kinetic — local-first investment research terminal.
 
-Entry point for the financial research agent.
-Run with: streamlit run app.py
+    streamlit run app.py
 
-Features:
-    - 📊 Live Market Dashboard (stock prices, charts, news)
-    - 🤖 Research Agent (RAG Q&A with document + live data)
-    - 🔮 Market Prediction Engine (ensemble technical + sentiment + fundamental)
-
-Disclaimer: This is not personalized financial advice.
+Five views, ordered by how often they are used rather than by architecture:
+Home (your book), Portfolio, Research (market + forecast), Assistant, Knowledge.
+Market data is fetched live on every render; reasoning runs on this machine.
 """
+
+from __future__ import annotations
 
 import sys
 from pathlib import Path
 
-# ── Ensure project root is in path ────────────────────────────────────────────
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import streamlit as st
 
 import config
-from ui.styles import get_custom_css
-from ui.dashboard import render_dashboard
-from ui.chat import render_chat
-from ui.prediction_view import render_prediction
+from src import preferences
+from src.market import resolve_symbol
+from ui import chat, home, knowledge, portfolio, research
+from ui.components import apply_pending_nav, index_summary, model_control
+from ui.theme import get_custom_css
 
+VIEWS = {
+    "Home": home.render,
+    "Portfolio": portfolio.render,
+    "Research": research.render,
+    "Assistant": chat.render,
+    "Knowledge": knowledge.render,
+}
 
-# ─── Page Configuration ──────────────────────────────────────────────────────
 st.set_page_config(
-    page_title="Kinetic // Financial Intelligence Terminal",
+    page_title="Kinetic — investment research terminal",
     page_icon="⚡",
     layout="wide",
-    initial_sidebar_state="collapsed",
-    menu_items={
-        "Get help": None,
-        "Report a Bug": None,
-        "About": (
-            "**Kinetic** — Institutional Financial Intelligence Terminal\n\n"
-            "Engine: Hybrid Ensemble (Technical 40% + Sentiment 30% + RAG Fundamentals 30%)\n\n"
-            "Hardware Target: Apple Silicon (MLX Accelerated)\n\n"
-            "Disclaimer: Not personalized investment advice."
-        ),
-    },
+    initial_sidebar_state="expanded",
+    menu_items={"About": f"{config.APP_NAME} — {config.APP_TAGLINE}\n\n{config.DISCLAIMER}"},
 )
 
-# ─── Apply Custom CSS ────────────────────────────────────────────────────────
-st.markdown(get_custom_css(), unsafe_allow_html=True)
+prefs = preferences.load()
+st.markdown(
+    get_custom_css(
+        text_scale=preferences.TEXT_SIZES.get(prefs.text_size, 1.0),
+        high_contrast=prefs.high_contrast,
+        reduce_motion=prefs.reduce_motion,
+    ),
+    unsafe_allow_html=True,
+)
+
+# A view may have asked to navigate elsewhere; apply it before the nav widget.
+apply_pending_nav()
 
 
-# ─── Sidebar: System Telemetry & Utilities ───────────────────────────────────
+# ─── Sidebar ──────────────────────────────────────────────────────────────────
 with st.sidebar:
-    st.markdown("""
-    <div style="padding: 6px 4px 14px 4px;">
-        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px;">
-            <div style="display: flex; align-items: center; gap: 6px;">
-                <span style="color: #CDFF9A; font-size: 1.1rem;">⚡</span>
-                <span style="font-family: 'IBM Plex Sans', sans-serif; font-size: 1.15rem; font-weight: 700; color: #FFFFFF; letter-spacing: -0.02em;">KINETIC</span>
+    st.markdown(
+        f"""
+        <div style="padding: 4px 2px 12px 2px;">
+            <div style="display:flex; align-items:center; gap:8px;">
+                <span style="color:#CDFF9A; font-size:1.2rem;" aria-hidden="true">⚡</span>
+                <span style="font-family:'IBM Plex Sans'; font-size:1.2rem; font-weight:700;
+                             color:#FFFFFF; letter-spacing:-0.02em;">KINETIC</span>
             </div>
-            <span class="terminal-badge">DRAWER</span>
+            <div class="hint" style="margin-top:4px;">
+                {('Signed in as ' + prefs.name) if prefs.name else 'Local-first investment research'}
+            </div>
         </div>
-        <div style="font-family: 'IBM Plex Mono', monospace; font-size: 0.66rem; color: #627C80; letter-spacing: 0.08em; text-transform: uppercase;">
-            System Telemetry & Controls
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
-
-    # Status indicators
-    st.markdown("### Provider Telemetry")
-
-    apis = [
-        ("yfinance", True, "Real-time"),
-        ("Alpha Vantage", bool(config.ALPHA_VANTAGE_API_KEY), "Connected" if config.ALPHA_VANTAGE_API_KEY else "Key Unset"),
-        ("NewsAPI", bool(config.NEWS_API_KEY), "Connected" if config.NEWS_API_KEY else "Key Unset"),
-        ("FMP", bool(config.FMP_API_KEY), "Connected" if config.FMP_API_KEY else "Optional"),
-    ]
-
-    items_html = ""
-    for name, is_active, status_text in apis:
-        dot_color = "#CDFF9A" if is_active else "#627C80"
-        text_color = "#CDFF9A" if is_active else "#9EB5B7"
-        items_html += (
-            f'<div style="display: flex; align-items: center; justify-content: space-between; '
-            f'font-family: \'IBM Plex Mono\', monospace; font-size: 0.73rem; padding: 5px 8px; '
-            f'background: rgba(32, 61, 67, 0.35); border-radius: 6px; border: 1px solid rgba(205, 255, 154, 0.06);">'
-            f'<span style="color: #F0F6F5;">{name}</span>'
-            f'<span style="display: flex; align-items: center; gap: 5px; color: {text_color}; font-weight: 500;">'
-            f'<span style="width: 5px; height: 5px; border-radius: 50%; background-color: {dot_color}; display: inline-block;"></span>'
-            f'{status_text}</span></div>'
-        )
-
-    telemetry_html = (
-        f'<div style="display: flex; flex-direction: column; gap: 7px; margin-top: 4px;">'
-        f'{items_html}'
-        f'<div style="display: flex; align-items: center; justify-content: space-between; '
-        f'font-family: \'IBM Plex Mono\', monospace; font-size: 0.73rem; padding: 5px 8px; '
-        f'background: rgba(32, 61, 67, 0.35); border-radius: 6px; border: 1px solid rgba(205, 255, 154, 0.06); margin-top: 2px;">'
-        f'<span style="color: #F0F6F5;">LLM Engine</span>'
-        f'<span style="color: #CDFF9A; font-weight: 600;">MLX Apple Silicon</span>'
-        f'</div></div>'
+        """,
+        unsafe_allow_html=True,
     )
-    st.markdown(telemetry_html, unsafe_allow_html=True)
+
+    model_control()
+    index_summary()
+
+    # -- watchlist: one click to any symbol, from anywhere --------------------
+    with st.expander("Watchlist", expanded=bool(prefs.watchlist)):
+        for symbol in prefs.watchlist:
+            open_column, remove_column = st.columns([3, 1])
+            if open_column.button(symbol, key=f"side_open_{symbol}", use_container_width=True):
+                st.session_state["symbol"] = symbol
+                st.session_state["_pending_view"] = "Research"
+                st.rerun()
+            if remove_column.button("✕", key=f"side_rm_{symbol}", help=f"Remove {symbol}"):
+                preferences.remove_from_watchlist(symbol)
+                st.rerun()
+
+        new_symbol = st.text_input("Add a symbol or company", key="watch_add",
+                                   placeholder="e.g. infosys")
+        if new_symbol:
+            resolved = resolve_symbol(new_symbol)
+            if resolved:
+                preferences.add_to_watchlist(resolved)
+                st.rerun()
+            else:
+                st.warning(f"No instrument found for “{new_symbol}”.")
+
+    # -- profile: what makes the answers personal -----------------------------
+    with st.expander("Your profile"):
+        name = st.text_input("Name", value=prefs.name)
+        currency = st.text_input("Base currency", value=prefs.base_currency,
+                                 help="Everything is converted into this using a live FX rate.")
+        horizon = st.selectbox("Investing horizon", preferences.HORIZONS,
+                               index=preferences.HORIZONS.index(prefs.horizon))
+        appetite = st.selectbox("Risk appetite", preferences.RISK_APPETITES,
+                                index=preferences.RISK_APPETITES.index(prefs.risk_appetite))
+        if st.button("Save profile", use_container_width=True):
+            preferences.update(
+                name=name,
+                base_currency=currency.upper()[:3],
+                horizon=horizon,
+                risk_appetite=appetite,
+            )
+            st.rerun()
+        st.markdown('<div class="hint">Stored on this machine only.</div>', unsafe_allow_html=True)
+
+    # -- accessibility --------------------------------------------------------
+    with st.expander("Display & accessibility"):
+        size = st.radio("Text size", list(preferences.TEXT_SIZES),
+                        index=list(preferences.TEXT_SIZES).index(prefs.text_size),
+                        horizontal=True)
+        contrast = st.toggle("High contrast", value=prefs.high_contrast,
+                             help="Raises text and border contrast against the dark canvas.")
+        motion = st.toggle("Reduce motion", value=prefs.reduce_motion,
+                           help="Stops pulsing and blinking indicators.")
+        if (size, contrast, motion) != (prefs.text_size, prefs.high_contrast, prefs.reduce_motion):
+            preferences.update(text_size=size, high_contrast=contrast, reduce_motion=motion)
+            st.rerun()
 
     st.markdown("---")
-    st.markdown("""
-    <div style="font-family: 'IBM Plex Mono', monospace; font-size: 0.68rem; color: #627C80; line-height: 1.4; padding: 0 4px;">
-        SEC-COMPLIANT RESEARCH PROTOCOL<br>
-        NOT PERSONALIZED INVESTMENT ADVICE
-    </div>
-    """, unsafe_allow_html=True)
+    auto_refresh = st.toggle(
+        "Auto-refresh market data",
+        value=False,
+        help=f"Re-runs the current view every {config.AUTO_REFRESH_SEC}s to pull fresh quotes.",
+    )
 
 
-# ─── Top Institutional Navigation Bar ─────────────────────────────────────────
-top_nav_container = st.container()
-with top_nav_container:
-    top_col1, top_col2, top_col3 = st.columns([3, 5, 3], vertical_alignment="center")
+# ─── Top bar ──────────────────────────────────────────────────────────────────
+title_column, nav_column, status_column = st.columns([2, 6, 2], vertical_alignment="center")
 
-    with top_col1:
-        st.markdown("""
-        <div style="display: flex; align-items: center; gap: 8px; padding: 4px 0;">
-            <span style="color: #CDFF9A; font-size: 1.4rem;">⚡</span>
-            <span style="font-family: 'IBM Plex Sans', sans-serif; font-size: 1.35rem; font-weight: 700; color: #FFFFFF; letter-spacing: -0.02em;">KINETIC</span>
-            <span class="terminal-badge">v2.4-PRO</span>
+with title_column:
+    st.markdown(
+        """
+        <div style="display:flex; align-items:center; gap:8px; padding:4px 0;">
+            <span style="color:#CDFF9A; font-size:1.35rem;" aria-hidden="true">⚡</span>
+            <span style="font-family:'IBM Plex Sans'; font-size:1.3rem; font-weight:700;
+                         color:#FFFFFF; letter-spacing:-0.02em;">KINETIC</span>
         </div>
-        """, unsafe_allow_html=True)
+        """,
+        unsafe_allow_html=True,
+    )
 
-    with top_col2:
-        page = st.radio(
-            "Navigation",
-            options=["📊 Dashboard", "🤖 Research Agent", "🔮 Prediction"],
-            index=0,
-            horizontal=True,
-            label_visibility="collapsed",
-            key="top_nav_radio",
-        )
+with nav_column:
+    view = st.radio(
+        "Main navigation",
+        options=list(VIEWS),
+        index=list(VIEWS).index(st.session_state.get("view", "Home")),
+        horizontal=True,
+        label_visibility="collapsed",
+        key="view",
+    )
 
-    with top_col3:
-        st.markdown("""
-        <div style="display: flex; align-items: center; justify-content: flex-end; gap: 14px; font-family: 'IBM Plex Mono', monospace; font-size: 0.72rem; color: #627C80; padding-top: 4px;">
-            <span style="display: flex; align-items: center; gap: 5px; color: #9EB5B7;">
-                <span class="pulse-dot"></span>
-                FEED LIVE
+with status_column:
+    st.markdown(
+        """
+        <div style="display:flex; align-items:center; justify-content:flex-end; gap:12px;
+                    font-family:'IBM Plex Mono'; font-size:0.72rem; color:#9EB5B7; padding-top:4px;">
+            <span style="display:flex; align-items:center; gap:5px;">
+                <span class="pulse-dot" aria-hidden="true"></span>LIVE
             </span>
-            <span>LAT: <strong style="color: #CDFF9A;">&lt;15MS</strong></span>
-            <span>RAG: <strong style="color: #CDFF9A;">ACTIVE</strong></span>
+            <span>ON-DEVICE</span>
         </div>
-        """, unsafe_allow_html=True)
+        """,
+        unsafe_allow_html=True,
+    )
 
-    st.markdown("""
-    <div style="height: 1px; background: linear-gradient(90deg, transparent, rgba(205, 255, 154, 0.25), transparent); margin: 6px 0 16px 0;"></div>
-    """, unsafe_allow_html=True)
-
-
-# ─── Page Router ─────────────────────────────────────────────────────────────
-if page == "📊 Dashboard":
-    render_dashboard()
-elif page == "🤖 Research Agent":
-    render_chat()
-elif page == "🔮 Prediction":
-    render_prediction()
+st.markdown(
+    '<div style="height:1px; background:linear-gradient(90deg, transparent, '
+    'rgba(205,255,154,0.25), transparent); margin:6px 0 16px 0;"></div>',
+    unsafe_allow_html=True,
+)
 
 
-# ─── Footer Disclaimer ───────────────────────────────────────────────────────
-st.markdown(f"""
-<div class="footer-disclaimer">
-    <div class="footer-tag">
-        <span class="pulse-dot"></span>
-        <span>KINETIC TERMINAL ARCHITECTURE // v2.4</span>
+# ─── View ─────────────────────────────────────────────────────────────────────
+VIEWS[view]()
+
+
+# ─── Footer ───────────────────────────────────────────────────────────────────
+st.markdown(
+    f"""
+    <div class="footer-disclaimer">
+        <div class="footer-tag"><span class="pulse-dot" aria-hidden="true"></span>
+            <span>KINETIC · RUNS ENTIRELY ON THIS MACHINE</span></div>
+        <div style="text-align:right; max-width:760px; overflow:hidden; text-overflow:ellipsis;
+                    white-space:nowrap;">{config.DISCLAIMER}</div>
     </div>
-    <div style="text-align: right; max-width: 750px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
-        {config.DISCLAIMER_TEXT}
-    </div>
-</div>
-""", unsafe_allow_html=True)
+    """,
+    unsafe_allow_html=True,
+)
 
-
-# ─── Auto-Refresh (for Dashboard) ────────────────────────────────────────────
-if page == "📊 Dashboard":
+if auto_refresh:
     try:
         from streamlit_autorefresh import st_autorefresh
-        # Auto-refresh every 2 minutes (120,000 ms)
-        st_autorefresh(
-            interval=config.LIVE_REFRESH_INTERVAL_SEC * 1000,
-            limit=None,
-            key="dashboard_autorefresh",
-        )
+
+        st_autorefresh(interval=config.AUTO_REFRESH_SEC * 1000, key="market_autorefresh")
     except ImportError:
-        # streamlit-autorefresh not installed — skip auto-refresh
         pass

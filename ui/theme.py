@@ -1,5 +1,5 @@
 """
-Kinetic Design System & Custom CSS — Institutional Financial Intelligence Terminal.
+Kinetic design system — one stylesheet for the whole terminal.
 
 Aesthetic: Bloomberg Terminal × Linear × Modern Fintech × Refined Glassmorphism.
 Color Palette:
@@ -10,10 +10,27 @@ Color Palette:
 """
 
 
-def get_custom_css() -> str:
-    """Return the complete institutional terminal CSS for the Streamlit app."""
-    return """
-    <style>
+def get_custom_css(
+    text_scale: float = 1.0,
+    high_contrast: bool = False,
+    reduce_motion: bool = False,
+) -> str:
+    """
+    Return the terminal stylesheet, adapted to the user's accessibility settings.
+
+    text_scale     multiplies every font size (1.0 / 1.15 / 1.3)
+    high_contrast  raises text and border contrast against the dark canvas
+    reduce_motion  stops the pulsing and blinking indicators
+    """
+    accessibility = _accessibility_css(text_scale, high_contrast, reduce_motion)
+    return (
+        f"<style>{accessibility}</style>\n"
+        + _BASE_CSS.strip()  # must not start indented: markdown would show it as code
+    )
+
+
+_BASE_CSS = """
+<style>
     /* ─── Typography: IBM Plex Sans & IBM Plex Mono ─────────────────── */
     @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400&family=IBM+Plex+Sans:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400&display=swap');
 
@@ -925,5 +942,194 @@ def get_custom_css() -> str:
     .terminal-table tr:hover td {
         background: rgba(205, 255, 154, 0.03);
     }
+
+    /* ─── Guide & onboarding ───────────────────────────────────────── */
+    .step-card {
+        display: flex;
+        gap: 14px;
+        padding: 16px 18px;
+        margin-bottom: 10px;
+        background: var(--k-charcoal-surface);
+        border: 1px solid var(--k-teal-border);
+        border-left: 2px solid var(--k-lime);
+        border-radius: 10px;
+    }
+
+    .step-number {
+        flex: 0 0 26px;
+        height: 26px;
+        border-radius: 7px;
+        background: var(--k-lime-dim);
+        border: 1px solid var(--k-lime-border);
+        color: var(--k-lime);
+        font-family: var(--k-font-mono);
+        font-size: 0.78rem;
+        font-weight: 700;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    .step-title {
+        font-family: var(--k-font-sans);
+        font-size: 0.95rem;
+        font-weight: 600;
+        color: var(--k-text-primary);
+        margin-bottom: 3px;
+    }
+
+    .step-body {
+        font-size: 0.85rem;
+        color: var(--k-text-secondary);
+        line-height: 1.55;
+    }
+
+    .step-body code {
+        font-family: var(--k-font-mono);
+        font-size: 0.78rem;
+        background: rgba(205, 255, 154, 0.08);
+        color: var(--k-lime);
+        padding: 1px 6px;
+        border-radius: 4px;
+    }
+
+    /* ─── Source & tool chips ──────────────────────────────────────── */
+    .chip-row { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0 10px 0; }
+
+    .chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        font-family: var(--k-font-mono);
+        font-size: 0.68rem;
+        padding: 3px 9px;
+        border-radius: 999px;
+        background: rgba(32, 61, 67, 0.55);
+        border: 1px solid var(--k-teal-border);
+        color: var(--k-text-secondary);
+    }
+
+    .chip-live { border-color: var(--k-lime-border); color: var(--k-lime); }
+    .chip-doc { border-color: rgba(158, 181, 183, 0.3); color: var(--k-text-secondary); }
+    .chip-tool { border-color: var(--k-orange-border); color: #FF8A55; }
+
+    /* ─── Signal / risk meters ─────────────────────────────────────── */
+    .meter {
+        height: 6px;
+        width: 100%;
+        border-radius: 999px;
+        background: rgba(32, 61, 67, 0.7);
+        overflow: hidden;
+        margin: 6px 0 2px 0;
+    }
+
+    .meter-fill { height: 100%; border-radius: 999px; }
+    .meter-lime { background: linear-gradient(90deg, rgba(205,255,154,0.4), var(--k-lime)); }
+    .meter-orange { background: linear-gradient(90deg, rgba(223,65,0,0.4), var(--k-orange)); }
+    .meter-neutral { background: linear-gradient(90deg, rgba(158,181,183,0.3), #9EB5B7); }
+
+    .leg-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: baseline;
+        font-family: var(--k-font-mono);
+        font-size: 0.74rem;
+        color: var(--k-text-secondary);
+    }
+
+    .leg-name { color: var(--k-text-primary); font-weight: 500; }
+
+    /* ─── Streaming answer surface ─────────────────────────────────── */
+    .stream-answer {
+        background: rgba(32, 61, 67, 0.28);
+        border: 1px solid var(--k-teal-border);
+        border-left: 2px solid var(--k-lime);
+        border-radius: 10px;
+        padding: 14px 18px;
+        color: var(--k-text-primary);
+        font-size: 0.92rem;
+        line-height: 1.65;
+    }
+
+    .caret {
+        display: inline-block;
+        width: 7px;
+        height: 15px;
+        background: var(--k-lime);
+        margin-left: 2px;
+        vertical-align: text-bottom;
+        animation: blink 1s step-end infinite;
+    }
+
+    @keyframes blink { 50% { opacity: 0; } }
+
+    .hint {
+        font-family: var(--k-font-mono);
+        font-size: 0.72rem;
+        color: var(--k-text-muted);
+        line-height: 1.5;
+    }
     </style>
     """
+
+
+
+def _accessibility_css(text_scale: float, high_contrast: bool, reduce_motion: bool) -> str:
+    """Overrides layered on top of the base theme."""
+    blocks = [
+        f"""
+    html {{ font-size: {16 * text_scale:.1f}px; }}
+
+    /* Keyboard users must always be able to see where they are. */
+    *:focus-visible {{
+        outline: 3px solid #CDFF9A !important;
+        outline-offset: 2px !important;
+        border-radius: 4px;
+    }}
+
+    /* Skip-to-content target for screen readers and keyboard navigation. */
+    .visually-hidden {{
+        position: absolute !important;
+        width: 1px; height: 1px;
+        overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap;
+    }}
+    """
+    ]
+
+    if high_contrast:
+        blocks.append("""
+    :root {
+        --k-text-primary: #FFFFFF;
+        --k-text-secondary: #DDE9E8;
+        --k-text-muted: #B4C6C8;
+        --k-text-dim: #8FA5A8;
+        --k-teal-border: rgba(205, 255, 154, 0.45);
+        --k-lime-border: rgba(205, 255, 154, 0.75);
+    }
+    .stApp { background: #06110F !important; }
+    .glass-card, .terminal-panel, .metric-card, .stock-tile,
+    .news-card, .intel-feed-item, .step-card, .chip {
+        border-color: rgba(205, 255, 154, 0.4) !important;
+        background: rgba(10, 26, 24, 0.92) !important;
+    }
+    .hint, .terminal-panel-meta, .metric-label { color: #C7D8DA !important; }
+    a { text-decoration: underline !important; }
+    """)
+
+    if reduce_motion:
+        blocks.append("""
+    *, *::before, *::after {
+        animation: none !important;
+        transition: none !important;
+    }
+    .pulse-dot { opacity: 1 !important; }
+    .caret { opacity: 1 !important; }
+    """)
+
+    # Honour the operating system setting even when the toggle is off.
+    blocks.append("""
+    @media (prefers-reduced-motion: reduce) {
+        *, *::before, *::after { animation: none !important; transition: none !important; }
+    }
+    """)
+    return "\n".join(blocks)

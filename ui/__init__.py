@@ -1,1 +1,1 @@
-# UI components — Streamlit dashboard, chat, prediction views
+"""Streamlit views for the Kinetic terminal."""

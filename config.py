@@ -1,64 +1,140 @@
 """
-Centralized configuration for the Personal Investment Research Agent.
-All settings, paths, and API keys are managed here.
+Kinetic — central configuration.
+
+Every tunable lives here and every value can be overridden from the
+environment (.env), so nothing operational is hardcoded in the code base.
 """
 
 import os
 from pathlib import Path
+
 from dotenv import load_dotenv
 
-# ─── Load environment variables ──────────────────────────────────────────────
 load_dotenv()
 
-# ─── Project Paths ───────────────────────────────────────────────────────────
+
+def _str(name: str, default: str) -> str:
+    value = os.getenv(name, "").strip()
+    return value or default
+
+
+def _int(name: str, default: int) -> int:
+    try:
+        return int(os.getenv(name, "").strip() or default)
+    except ValueError:
+        return default
+
+
+def _float(name: str, default: float) -> float:
+    try:
+        return float(os.getenv(name, "").strip() or default)
+    except ValueError:
+        return default
+
+
+def _bool(name: str, default: bool) -> bool:
+    value = os.getenv(name, "").strip().lower()
+    if not value:
+        return default
+    return value in {"1", "true", "yes", "on"}
+
+
+def _list(name: str, default: str) -> list[str]:
+    raw = _str(name, default)
+    return [item.strip() for item in raw.split(",") if item.strip()]
+
+
+# ─── Paths ────────────────────────────────────────────────────────────────────
 BASE_DIR = Path(__file__).resolve().parent
-DATA_DIR = BASE_DIR / "data" / "documents"
-CHROMA_DB_DIR = BASE_DIR / "chroma_db"
+DOCUMENTS_DIR = Path(_str("KINETIC_DOCUMENTS_DIR", str(BASE_DIR / "data" / "documents")))
+VECTOR_DIR = Path(_str("KINETIC_VECTOR_DIR", str(BASE_DIR / "data" / "vector_store")))
 
-# Ensure directories exist
-DATA_DIR.mkdir(parents=True, exist_ok=True)
-CHROMA_DB_DIR.mkdir(parents=True, exist_ok=True)
+# Your holdings live in this file and nowhere else. It is git-ignored, it is
+# never uploaded, and no part of the app sends it over a network.
+PORTFOLIO_FILE = Path(_str("KINETIC_PORTFOLIO_FILE", str(BASE_DIR / "data" / "portfolio.json")))
 
-# ─── API Keys (add your keys in .env) ────────────────────────────────────────
-ALPHA_VANTAGE_API_KEY = os.getenv("ALPHA_VANTAGE_API_KEY", "")
-NEWS_API_KEY = os.getenv("NEWS_API_KEY", "")
-FMP_API_KEY = os.getenv("FMP_API_KEY", "")
+DOCUMENTS_DIR.mkdir(parents=True, exist_ok=True)
+VECTOR_DIR.mkdir(parents=True, exist_ok=True)
 
-# ─── RAG Pipeline Settings (tuned for low latency) ───────────────────────────
-RAG_CHUNK_SIZE = 800            # chars per chunk — keeps financial tables intact
-RAG_CHUNK_OVERLAP = 200         # overlap — prevents splitting mid-number
-RAG_RETRIEVAL_K = 3             # top-k docs — minimal for fast retrieval
-EMBEDDING_MODEL = "all-MiniLM-L6-v2"  # 384-dim, ~14ms/query
-CHROMA_COLLECTION_NAME = "financial_docs"
 
-# ─── LLM Settings ────────────────────────────────────────────────────────────
-LLM_MAX_TOKENS = 2048
-LLM_TEMPERATURE = 0.1           # low temp for factual financial answers
-LLM_CONTEXT_WINDOW = 4096
+# ─── Local LLM (MLX on Apple Silicon) ─────────────────────────────────────────
+# The model is never loaded at import time. It loads on the first explicit
+# request (the "Load model" control in the UI, or LLM_AUTOLOAD=true).
+LLM_MODEL = _str("KINETIC_LLM_MODEL", "mlx-community/gemma-4-26b-a4b-it-4bit")
+LLM_AUTOLOAD = _bool("KINETIC_LLM_AUTOLOAD", False)
+LLM_MAX_TOKENS = _int("KINETIC_LLM_MAX_TOKENS", 1536)
+LLM_TEMPERATURE = _float("KINETIC_LLM_TEMPERATURE", 0.2)
+LLM_TOP_P = _float("KINETIC_LLM_TOP_P", 0.95)
+LLM_TOP_K = _int("KINETIC_LLM_TOP_K", 64)
+LLM_THINKING = _bool("KINETIC_LLM_THINKING", False)
+LLM_MAX_TOOL_STEPS = _int("KINETIC_LLM_MAX_TOOL_STEPS", 4)
+LLM_HISTORY_TURNS = _int("KINETIC_LLM_HISTORY_TURNS", 6)
 
-# ─── Live Data Settings ──────────────────────────────────────────────────────
-LIVE_REFRESH_INTERVAL_SEC = 120  # auto-refresh every 2 minutes
-NEWS_CACHE_TTL_SEC = 300         # cache news for 5 minutes
-STOCK_CACHE_TTL_SEC = 60         # cache stock prices for 1 minute
-MAX_NEWS_RESULTS = 5             # top N news headlines per query
 
-# ─── Prediction Engine Settings ──────────────────────────────────────────────
-TECHNICAL_WEIGHT = 0.40
-SENTIMENT_WEIGHT = 0.30
-FUNDAMENTAL_WEIGHT = 0.30
-MIN_CONFIDENCE_THRESHOLD = 40   # below this → "INSUFFICIENT DATA"
-LOOKBACK_DAYS = 90              # historical data window for indicators
+# ─── RAG pipeline ─────────────────────────────────────────────────────────────
+EMBEDDING_MODEL = _str("KINETIC_EMBEDDING_MODEL", "sentence-transformers/all-MiniLM-L6-v2")
+EMBEDDING_BATCH_SIZE = _int("KINETIC_EMBEDDING_BATCH_SIZE", 64)
 
-# ─── MCP Server Settings (Bonus) ─────────────────────────────────────────────
-MCP_SERVER_HOST = "localhost"
-MCP_SERVER_PORT = 8765
+CHUNK_SIZE = _int("KINETIC_CHUNK_SIZE", 900)          # characters
+CHUNK_OVERLAP = _int("KINETIC_CHUNK_OVERLAP", 180)    # keeps numbers with labels
 
-# ─── Disclaimer ──────────────────────────────────────────────────────────────
-DISCLAIMER_TEXT = (
-    "⚠️ DISCLAIMER: This is a model-generated report based on historical data "
-    "and technical indicators. It carries inherent risks and does not guarantee "
-    "future performance. Past performance is not indicative of future results. "
-    "Please consult a certified financial advisor before making any investment "
-    "decisions. The creators of this tool are not responsible for any financial "
-    "losses incurred."
+RETRIEVAL_K = _int("KINETIC_RETRIEVAL_K", 5)          # chunks handed to the model
+RETRIEVAL_CANDIDATES = _int("KINETIC_RETRIEVAL_CANDIDATES", 24)  # per retriever leg
+RRF_K = _int("KINETIC_RRF_K", 60)                     # reciprocal-rank-fusion constant
+MMR_LAMBDA = _float("KINETIC_MMR_LAMBDA", 0.7)        # 1.0 = pure relevance
+MIN_RELEVANCE = _float("KINETIC_MIN_RELEVANCE", 0.15) # cosine floor, drops noise
+
+COLLECTION_DOCUMENTS = _str("KINETIC_COLLECTION_DOCUMENTS", "kinetic_documents")
+COLLECTION_MARKET = _str("KINETIC_COLLECTION_MARKET", "kinetic_market_feed")
+
+
+# ─── Live market data ─────────────────────────────────────────────────────────
+QUOTE_TTL_SEC = _int("KINETIC_QUOTE_TTL_SEC", 30)
+HISTORY_TTL_SEC = _int("KINETIC_HISTORY_TTL_SEC", 300)
+NEWS_TTL_SEC = _int("KINETIC_NEWS_TTL_SEC", 300)
+FUNDAMENTALS_TTL_SEC = _int("KINETIC_FUNDAMENTALS_TTL_SEC", 900)
+SCREENER_TTL_SEC = _int("KINETIC_SCREENER_TTL_SEC", 120)
+
+NEWS_LIMIT = _int("KINETIC_NEWS_LIMIT", 8)
+HISTORY_PERIOD = _str("KINETIC_HISTORY_PERIOD", "6mo")
+AUTO_REFRESH_SEC = _int("KINETIC_AUTO_REFRESH_SEC", 60)
+
+# Index symbols shown on the dashboard ribbon (Yahoo Finance symbols).
+INDEX_SYMBOLS = _list("KINETIC_INDEX_SYMBOLS", "^NSEI,^BSESN,^NSEBANK,^INDIAVIX,^GSPC,BTC-USD")
+
+# Everything in a portfolio is converted to this currency using a live FX rate.
+BASE_CURRENCY = _str("KINETIC_BASE_CURRENCY", "INR")
+DEFAULT_SYMBOL = _str("KINETIC_DEFAULT_SYMBOL", "RELIANCE.NS")
+
+# Optional API keys — every feature degrades gracefully without them.
+NEWS_API_KEY = _str("NEWS_API_KEY", "")
+ALPHA_VANTAGE_API_KEY = _str("ALPHA_VANTAGE_API_KEY", "")
+FMP_API_KEY = _str("FMP_API_KEY", "")
+
+HTTP_TIMEOUT_SEC = _int("KINETIC_HTTP_TIMEOUT_SEC", 10)
+
+
+# ─── Prediction engine ────────────────────────────────────────────────────────
+WEIGHT_TECHNICAL = _float("KINETIC_WEIGHT_TECHNICAL", 0.40)
+WEIGHT_SENTIMENT = _float("KINETIC_WEIGHT_SENTIMENT", 0.25)
+WEIGHT_FUNDAMENTAL = _float("KINETIC_WEIGHT_FUNDAMENTAL", 0.25)
+WEIGHT_DOCUMENTS = _float("KINETIC_WEIGHT_DOCUMENTS", 0.10)
+MIN_CONFIDENCE = _float("KINETIC_MIN_CONFIDENCE", 35.0)
+FORECAST_HORIZON_DAYS = _int("KINETIC_FORECAST_HORIZON_DAYS", 10)
+
+
+# ─── MCP server ───────────────────────────────────────────────────────────────
+MCP_HOST = _str("KINETIC_MCP_HOST", "127.0.0.1")
+MCP_PORT = _int("KINETIC_MCP_PORT", 8765)
+
+
+# ─── Presentation ─────────────────────────────────────────────────────────────
+APP_NAME = "KINETIC"
+APP_TAGLINE = "Local-first investment research terminal"
+
+DISCLAIMER = (
+    "Kinetic is a research tool, not personalised financial advice. Signals are "
+    "generated by statistical models over public market data and your own "
+    "documents. Markets carry risk; past performance does not predict future "
+    "returns. Verify every number before acting on it."
 )

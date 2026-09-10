@@ -1,184 +1,221 @@
 """
-Chat View — Institutional Financial Research Analyst Workstation.
+Chat — the streaming research assistant.
 
-Features:
-    - Analyst terminal workstation interface (structured query/synthesis logs)
-    - Vector index and document management in sidebar
-    - Automated query routing (live market lookup, document RAG, macro news)
-    - Precision quick-action query prompts
+Every question runs the full pipeline: hybrid retrieval over the vector store,
+then Gemma 4 reasoning locally with live-market tools, with the answer written
+to the screen as it is generated.
 """
 
-import os
-import tempfile
-from textwrap import dedent
+from __future__ import annotations
+
+import html
+
 import streamlit as st
 
-from src.agent.agent import get_agent
-from src.rag.pipeline import get_pipeline
-from src.rag.vector_store import get_document_count
 import config
+from src.agent import ResearchAgent
+from src.llm import engine
+from src.market import get_movers
+from ui.components import chips, hint, model_control, panel_header, steps
 
 
-def render_chat():
-    """Render the institutional research agent workstation tab."""
+def _agent() -> ResearchAgent:
+    if "agent" not in st.session_state:
+        st.session_state.agent = ResearchAgent()
+    return st.session_state.agent
 
-    # ── Header Bar ────────────────────────────────────────────────────
-    st.markdown("""
-    <div class="terminal-panel-header" style="margin-top: 4px;">
-        <div class="terminal-panel-title">
-            <span style="color: #CDFF9A;">●</span>
-            <span>Institutional Research Agent // Workstation</span>
-        </div>
-        <div class="terminal-panel-meta">
-            ROUTER: MULTI-TOOL HYBRID // VECTOR STORE: CHROMADB // LLM: MLX
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
 
-    # ── Sidebar Document Management ───────────────────────────────────
-    with st.sidebar:
-        st.markdown("### Document & Vector Index")
+def _source_chips(passages) -> list[tuple[str, str]]:
+    items = []
+    for index, passage in enumerate(passages, 1):
+        kind = "live" if passage.collection.endswith("market_feed") else "doc"
+        items.append((kind, f"S{index} · {passage.label[:46]}"))
+    return items
 
-        doc_count = get_document_count()
-        st.markdown(dedent(f"""
-        <div style="background: rgba(32, 61, 67, 0.4); border: 1px solid rgba(205, 255, 154, 0.15); border-radius: 8px; padding: 12px 14px; margin-bottom: 12px;">
-            <div style="font-family: 'IBM Plex Sans', sans-serif; font-size: 0.70rem; color: #627C80; text-transform: uppercase; letter-spacing: 0.08em; font-weight: 600;">Indexed Corpus</div>
-            <div style="font-family: 'IBM Plex Mono', monospace; font-size: 1.4rem; font-weight: 700; color: #CDFF9A; margin: 4px 0;">{doc_count} <span style="font-size: 0.75rem; color: #9EB5B7; font-weight: 400;">chunks</span></div>
-            <div style="font-family: 'IBM Plex Mono', monospace; font-size: 0.68rem; color: #627C80;">EMBEDDINGS: all-MiniLM-L6-v2</div>
-        </div>
-        """), unsafe_allow_html=True)
 
-        uploaded_files = st.file_uploader(
-            "Upload 10-K, 10-Q, Pitch Books (PDF/TXT)",
-            type=["pdf", "txt"],
-            accept_multiple_files=True,
-            key="doc_uploader",
+def _render_message(message: dict) -> None:
+    if message["role"] == "user":
+        st.markdown(
+            f'<div class="chat-user"><div>{html.escape(message["content"])}</div></div>',
+            unsafe_allow_html=True,
         )
+        return
 
-        if uploaded_files:
-            if st.button("📥 INGEST TO VECTOR STORE", key="ingest_btn"):
-                pipeline = get_pipeline()
-                with st.spinner("Embedding and indexing documents..."):
-                    total_chunks = 0
-                    for uploaded_file in uploaded_files:
-                        suffix = os.path.splitext(uploaded_file.name)[1]
-                        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
-                            tmp.write(uploaded_file.read())
-                            tmp_path = tmp.name
+    st.markdown('<div class="chat-assistant">', unsafe_allow_html=True)
+    st.markdown(message["content"])
+    st.markdown("</div>", unsafe_allow_html=True)
 
-                        chunks = pipeline.ingest_file(tmp_path)
-                        total_chunks += chunks
-                        os.unlink(tmp_path)
+    used = message.get("tools", [])
+    if used:
+        chips([("tool", name) for name in dict.fromkeys(used)])
+    if message.get("sources"):
+        with st.expander(f"Retrieved context — {len(message['sources'])} passages"):
+            for index, passage in enumerate(message["sources"], 1):
+                st.markdown(f"**[S{index}] {passage.label}** · similarity {passage.score:.2f}")
+                st.caption(passage.text[:700])
+    if message.get("footer"):
+        hint(message["footer"])
 
-                    st.success(f"Indexed {total_chunks} chunks from {len(uploaded_files)} file(s).")
-                    st.rerun()
 
-        if st.button("📂 INGEST DATA/DOCUMENTS/ CORPUS", key="ingest_dir_btn"):
-            pipeline = get_pipeline()
-            with st.spinner("Ingesting directory documents..."):
-                chunks = pipeline.ingest()
-                if chunks > 0:
-                    st.success(f"Indexed {chunks} chunks from disk.")
-                else:
-                    st.warning("No documents found in data/documents/")
-                st.rerun()
+def _stream_answer(question: str) -> dict:
+    """Run one turn, painting status, tools and tokens as they arrive."""
+    status_slot = st.empty()
+    chips_slot = st.empty()
+    thought_slot = st.expander("Model reasoning", expanded=False)
+    thought_box = thought_slot.empty()
+    answer_slot = st.empty()
 
-    # ── Chat Session Initialization ───────────────────────────────────
-    if "chat_messages" not in st.session_state:
-        st.session_state.chat_messages = []
+    answer, thought = "", ""
+    tools_used: list[str] = []
+    sources: list = []
+    footer = ""
 
-    # ── Quick Action Command Prompts (Empty State) ─────────────────────
-    if not st.session_state.chat_messages:
-        st.markdown("""
-        <div class="glass-card" style="padding: 24px; text-align: left; margin: 16px 0;">
-            <div style="font-family: 'IBM Plex Sans', sans-serif; font-size: 1.1rem; font-weight: 600; color: #FFFFFF; margin-bottom: 6px;">
-                Financial Analyst Terminal Ready
-            </div>
-            <p style="color: #9EB5B7; font-size: 0.88rem; margin: 0 0 16px 0; line-height: 1.5;">
-                Ask institutional research questions spanning live stock quotes, fundamental financial statements, SEC filings from your vector store, or macro news headlines.
-            </p>
-            <div style="font-family: 'IBM Plex Mono', monospace; font-size: 0.72rem; color: #627C80; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.08em;">
-                Sample Intelligence Inquiries:
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
+    for event in _agent().stream(question):
+        if event.kind == "status":
+            status_slot.markdown(f'<div class="hint">▸ {event.text}…</div>', unsafe_allow_html=True)
 
-        col1, col2 = st.columns(2)
-        with col1:
-            if st.button("⚡ [QUOTE] Current Valuation & Day Metrics: AAPL", key="qa_1"):
-                _quick_ask("What is the current stock price, volume, and daily movement for AAPL?")
-            if st.button("📰 [WIRE] Recent News Sentiment & Catalysts: NVDA", key="qa_2"):
-                _quick_ask("What are the recent news headlines and key catalysts for Nvidia (NVDA)?")
+        elif event.kind == "sources":
+            sources = event.data["passages"]
+            with chips_slot:
+                chips(_source_chips(sources) or [("doc", "no matching passages")])
 
-        with col2:
-            if st.button("📄 [FILINGS] Review Uploaded Documents for Revenue Trends", key="qa_3"):
-                _quick_ask("What was the revenue and margin performance in the latest quarter according to our indexed documents?")
-            if st.button("🔍 [SYNTHESIS] Compare Live Price vs Document Guidance", key="qa_4"):
-                _quick_ask("Analyze the current price of Microsoft (MSFT) and synthesize it with the financial guidance mentioned in uploaded documents.")
+        elif event.kind == "thought":
+            thought += event.text
+            thought_box.caption(thought)
 
-    # ── Chat History Log ──────────────────────────────────────────────
-    for msg in st.session_state.chat_messages:
-        role = msg["role"]
-        content = msg["content"]
+        elif event.kind == "token":
+            answer += event.text
+            answer_slot.markdown(
+                f'<div class="stream-answer">{html.escape(answer)}<span class="caret"></span></div>',
+                unsafe_allow_html=True,
+            )
 
-        if role == "user":
-            st.markdown(dedent(f"""
-            <div class="chat-user">
-                <div>{content}</div>
-            </div>
-            """), unsafe_allow_html=True)
-        else:
-            st.markdown(dedent(f"""
-            <div class="chat-assistant">
-                <div style="color: #EAF2F1; font-family: var(--k-font-sans);">{content}</div>
-            </div>
-            """), unsafe_allow_html=True)
+        elif event.kind == "step_reset":
+            answer = ""
+            answer_slot.empty()
 
-    # ── Chat Input ────────────────────────────────────────────────────
-    user_input = st.chat_input(
-        "Enter financial research query or ticker inquiry...",
-        key="chat_input",
+        elif event.kind == "tool_call":
+            tools_used.append(event.text)
+            status_slot.markdown(
+                f'<div class="hint">▸ calling <code>{event.text}</code>…</div>',
+                unsafe_allow_html=True,
+            )
+
+        elif event.kind == "tool_result":
+            with chips_slot:
+                chips(_source_chips(sources) + [("tool", name) for name in dict.fromkeys(tools_used)])
+
+        elif event.kind == "error":
+            status_slot.empty()
+            st.error(event.text)
+            return {"role": "assistant", "content": f"⚠️ {event.text}", "sources": [], "tools": []}
+
+        elif event.kind == "done":
+            answer = event.text or answer
+            footer = (
+                f"{event.data['seconds']}s · {event.data['tokens']} tokens at "
+                f"{event.data['tokens_per_sec']} tok/s · {len(sources)} passages retrieved"
+                + (f" · tools: {', '.join(dict.fromkeys(event.data['tools_used']))}" if event.data["tools_used"] else "")
+            )
+
+    status_slot.empty()
+    answer_slot.empty()
+    if not thought:
+        thought_box.caption("The model answered directly, without a separate reasoning pass.")
+
+    return {
+        "role": "assistant",
+        "content": answer or "_The model returned an empty response._",
+        "sources": sources,
+        "tools": tools_used,
+        "footer": footer,
+    }
+
+
+def _suggestions() -> list[str]:
+    """
+    Prompts built from this user's own book and from what is moving right now —
+    never a canned list.
+    """
+    from src.portfolio import load_holdings
+
+    prompts: list[str] = []
+    holdings = load_holdings()
+
+    if holdings:
+        prompts.append("How is my portfolio doing today, and which position is dragging it?")
+        prompts.append(f"What is the news on {holdings[0].symbol}, and does it change anything for me?")
+        prompts.append("Where is my biggest concentration risk right now?")
+    for row in get_movers("most_actives", count=2):
+        prompts.append(f"Why is {row['symbol']} moving today, and what do its fundamentals look like?")
+    if not holdings:
+        prompts.append("Summarise what my indexed documents say about revenue growth and margins.")
+    return prompts[:4]
+
+
+def render() -> None:
+    panel_header(
+        "Research assistant",
+        f"RAG: HYBRID (DENSE + BM25) · ENGINE: {config.LLM_MODEL.split('/')[-1].upper()}",
     )
 
-    if user_input:
-        st.session_state.chat_messages.append({
-            "role": "user",
-            "content": user_input,
-        })
+    if "messages" not in st.session_state:
+        st.session_state.messages = []
 
-        with st.spinner("⚙️ Accessing market feeds and vector indices..."):
-            agent = get_agent()
-            response = agent.query(user_input)
+    if not engine().is_loaded:
+        left, right = st.columns([3, 1])
+        with left:
+            st.markdown(
+                '<div class="glass-card" style="padding:18px 20px;">'
+                '<div class="step-title">The reasoning model is not loaded yet</div>'
+                '<div class="step-body">Kinetic runs Gemma 4 on this machine through MLX — '
+                'nothing leaves your laptop. Loading takes about a minute and roughly 15 GB of '
+                'unified memory. Retrieval, quotes and forecasts already work without it.</div></div>',
+                unsafe_allow_html=True,
+            )
+        with right:
+            model_control(key="chat")
 
-        st.session_state.chat_messages.append({
-            "role": "assistant",
-            "content": response,
-        })
-        st.rerun()
-
-    # ── Workspace Utilities ───────────────────────────────────────────
-    if st.session_state.chat_messages:
-        c_clear, _ = st.columns([1, 4])
-        with c_clear:
-            if st.button("🗑️ RESET SESSION", key="clear_chat_btn"):
-                st.session_state.chat_messages = []
-                agent = get_agent()
-                agent.clear_history()
+    if not st.session_state.messages:
+        steps(
+            [
+                ("Ask in plain English", "Name a company or a ticker — <code>NVDA</code> or <code>nvidia</code>. Kinetic resolves symbols against a live search."),
+                ("It retrieves first", "Your question is embedded and matched against your documents and the live market feed before the model sees it."),
+                ("It calls live tools", "Quotes, fundamentals, news, screeners and the forecast engine run on demand, and every number is labelled with its source."),
+            ]
+        )
+        st.markdown("**Try one of these — built from what is trading right now:**")
+        columns = st.columns(2)
+        for index, prompt in enumerate(_suggestions()):
+            if columns[index % 2].button(prompt, key=f"suggest_{index}", use_container_width=True):
+                st.session_state.pending = prompt
                 st.rerun()
 
+    for message in st.session_state.messages:
+        _render_message(message)
 
-def _quick_ask(question: str):
-    """Execute a predefined analyst query."""
-    st.session_state.chat_messages.append({
-        "role": "user",
-        "content": question,
-    })
+    question = st.chat_input("Ask about a company, a filing, or the market…")
+    if not question and st.session_state.get("pending"):
+        question = st.session_state.pop("pending")
 
-    agent = get_agent()
-    response = agent.query(question)
+    if question:
+        user_message = {"role": "user", "content": question}
+        st.session_state.messages.append(user_message)
+        _render_message(user_message)
 
-    st.session_state.chat_messages.append({
-        "role": "assistant",
-        "content": response,
-    })
-    st.rerun()
+        if not engine().is_loaded:
+            st.warning(
+                "Load the local model first — use the **LOAD MODEL** button above or in the sidebar."
+            )
+            st.session_state.messages.pop()
+            return
+
+        reply = _stream_answer(question)
+        st.session_state.messages.append(reply)
+        st.rerun()
+
+    if st.session_state.messages:
+        if st.button("Clear conversation", key="clear_chat"):
+            st.session_state.messages = []
+            _agent().reset()
+            st.rerun()

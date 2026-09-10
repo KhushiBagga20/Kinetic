@@ -1,342 +1,235 @@
 """
-Dashboard View — Real-Time Market Intelligence Terminal.
+Dashboard — the live market view.
 
-Features:
-    - Real-time stock price cards with auto-refresh
-    - Institutional interactive candlestick charts (Plotly) with SMA & Volume
-    - Real-time financial intelligence news wire
-    - Watchlist management with quick-ticker selectors
+Every figure on this page is fetched at render time from Yahoo Finance:
+index levels, the candle chart, the screener tables and the news feed. There
+is no bundled sample data anywhere in the app.
 """
 
-from textwrap import dedent
-import streamlit as st
+from __future__ import annotations
+
+import html
+
 import plotly.graph_objects as go
-import pandas as pd
+import streamlit as st
 
-from src.tools.stock_lookup import get_stock_data_raw, get_historical_data
-from src.tools.news_fetcher import get_news_for_sentiment
 import config
+from src import indicators
+from src.market import (
+    get_history,
+    get_movers,
+    get_news,
+    get_quote,
+    get_quotes,
+    resolve_symbol,
+    session,
+)
+from src.rag import ingest_market_feed
+from ui.components import chips, format_money, hint, metric_tile, panel_header
+
+PERIODS = {"1M": "1mo", "3M": "3mo", "6M": "6mo", "1Y": "1y", "5Y": "5y"}
+SCREENERS = {"Gainers": "day_gainers", "Losers": "day_losers", "Most active": "most_actives"}
 
 
-def render_dashboard():
-    """Render the live market dashboard tab."""
+def _compact(value: float | None) -> str:
+    """Index levels are long; drop decimals once they stop carrying meaning."""
+    if value is None:
+        return "—"
+    if abs(value) >= 10_000:
+        return f"{value:,.0f}"
+    return f"{value:,.2f}"
 
-    # ── Section Header / Controls ─────────────────────────────────────
-    st.markdown("""
-    <div class="terminal-panel-header" style="margin-top: 4px;">
-        <div class="terminal-panel-title">
-            <span style="color: #CDFF9A;">●</span>
-            <span>Market Overview & Watchlist</span>
-        </div>
-        <div class="terminal-panel-meta">
-            REFRESH INTERVAL: 120s // SOURCE: NYSE, NASDAQ, GLOBAL
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
 
-    # ── Watchlist Command Bar ─────────────────────────────────────────
-    col_input, col_btn = st.columns([4, 1])
-    with col_input:
-        ticker_input = st.text_input(
-            "Watchlist Tickers",
-            value="AAPL, NVDA, MSFT, TSLA",
-            placeholder="e.g. AAPL, NVDA, MSFT, AMZN, GOOGL",
-            key="dashboard_ticker_input",
-            label_visibility="collapsed",
+def _index_ribbon() -> None:
+    quotes = get_quotes(config.INDEX_SYMBOLS)
+    if not quotes:
+        hint("Index data is unavailable right now — the market data provider did not respond.")
+        return
+    columns = st.columns(len(quotes))
+    for column, quote in zip(columns, quotes):
+        with column:
+            change = quote.change_percent or 0.0
+            metric_tile(
+                quote.name.replace(" Index", "")[:18],
+                _compact(quote.price),
+                f"{change:+.2f}%",
+                positive=change >= 0,
+            )
+
+
+def _price_chart(symbol: str, history, currency: str) -> None:
+    close = history["Close"]
+    figure = go.Figure()
+    figure.add_trace(
+        go.Candlestick(
+            x=history.index,
+            open=history["Open"],
+            high=history["High"],
+            low=history["Low"],
+            close=close,
+            name=symbol,
+            increasing_line_color="#CDFF9A",
+            decreasing_line_color="#DF4100",
+            increasing_fillcolor="rgba(205,255,154,0.35)",
+            decreasing_fillcolor="rgba(223,65,0,0.35)",
         )
-    with col_btn:
-        refresh = st.button("↻ REFRESH", key="refresh_btn", help="Fetch latest market quotes")
+    )
+    for window, colour in ((20, "#9EB5B7"), (50, "#627C80")):
+        if len(close) > window:
+            figure.add_trace(
+                go.Scatter(
+                    x=history.index,
+                    y=close.rolling(window).mean(),
+                    name=f"SMA {window}",
+                    line=dict(color=colour, width=1.2),
+                )
+            )
+    figure.update_layout(
+        height=420,
+        margin=dict(l=0, r=0, t=10, b=0),
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(14,28,31,0.5)",
+        font=dict(family="IBM Plex Mono", color="#9EB5B7", size=11),
+        xaxis=dict(gridcolor="rgba(32,61,67,0.6)", rangeslider=dict(visible=False)),
+        yaxis=dict(gridcolor="rgba(32,61,67,0.6)", title=currency),
+        legend=dict(orientation="h", y=1.06, x=0, bgcolor="rgba(0,0,0,0)"),
+        hovermode="x unified",
+    )
+    st.plotly_chart(figure, use_container_width=True, config={"displayModeBar": False})
 
-    # Quick Ticker Selector Chips
-    st.markdown("""
-    <div style="display: flex; align-items: center; gap: 8px; margin: -6px 0 14px 0; font-family: 'IBM Plex Mono', monospace; font-size: 0.72rem; color: #627C80;">
-        <span>PRESETS:</span>
-        <span style="color: #9EB5B7;">AAPL</span> •
-        <span style="color: #9EB5B7;">NVDA</span> •
-        <span style="color: #9EB5B7;">MSFT</span> •
-        <span style="color: #9EB5B7;">AMZN</span> •
-        <span style="color: #9EB5B7;">GOOGL</span>
-    </div>
-    """, unsafe_allow_html=True)
 
-    tickers = [t.strip().upper() for t in ticker_input.split(",") if t.strip()]
+def _quote_header(quote) -> None:
+    change = quote.change_percent or 0.0
+    columns = st.columns(5)
+    with columns[0]:
+        metric_tile("Last price", f"{quote.price:,.2f} {quote.currency}" if quote.price else "—",
+                    f"{quote.change:+,.2f} ({change:+.2f}%)" if quote.change is not None else "",
+                    positive=change >= 0)
+    with columns[1]:
+        metric_tile("Day range",
+                    f"{quote.day_low:,.2f} – {quote.day_high:,.2f}" if quote.day_low else "—")
+    with columns[2]:
+        metric_tile("52-week range",
+                    f"{quote.year_low:,.2f} – {quote.year_high:,.2f}" if quote.year_low else "—")
+    with columns[3]:
+        metric_tile("Volume", f"{quote.volume:,.0f}" if quote.volume else "—")
+    with columns[4]:
+        metric_tile("Market cap", format_money(quote.market_cap, quote.currency))
 
-    if not tickers:
-        st.info("Enter stock tickers above to load real-time market data.")
+
+def _news_feed(symbol: str) -> None:
+    articles = get_news(symbol)
+    if not articles:
+        hint("No headlines returned for this symbol in the last news window.")
+        return
+    for article in articles:
+        st.markdown(
+            f"""
+            <div class="news-card">
+                <div class="news-title">{html.escape(article.title)}</div>
+                <div class="news-meta">{html.escape(article.publisher)} · {article.published} ·
+                    <a href="{article.url}" target="_blank">open</a>
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+
+def _movers() -> None:
+    tabs = st.tabs(list(SCREENERS))
+    for tab, (label, key) in zip(tabs, SCREENERS.items()):
+        with tab:
+            rows = get_movers(key, count=8)
+            if not rows:
+                hint("The screener did not return rows right now.")
+                continue
+            body = "".join(
+                f"<tr><td><strong>{row['symbol']}</strong></td>"
+                f"<td>{html.escape(row['name'][:34])}</td>"
+                f"<td>{row['price']:,.2f} {row['currency']}</td>"
+                f"<td style=\"color: {'#CDFF9A' if (row['change_percent'] or 0) >= 0 else '#DF4100'};\">"
+                f"{row['change_percent']:+.2f}%</td></tr>"
+                for row in rows
+            )
+            st.markdown(
+                f'<table class="terminal-table"><thead><tr><th>Symbol</th><th>Name</th>'
+                f'<th>Price</th><th>Change</th></tr></thead><tbody>{body}</tbody></table>',
+                unsafe_allow_html=True,
+            )
+
+
+def render() -> None:
+    panel_header("Live market", "QUOTES · CANDLES · NEWS · SCREENERS, FETCHED ON EVERY RENDER")
+
+    _index_ribbon()
+    st.markdown("<div style='height:14px'></div>", unsafe_allow_html=True)
+
+    search_column, period_column, action_column = st.columns([3, 2, 2], vertical_alignment="bottom")
+    with search_column:
+        query = st.text_input(
+            "Symbol or company name",
+            value=st.session_state.get("symbol", config.DEFAULT_SYMBOL),
+            help="Type a ticker (RELIANCE.NS, AAPL) or a company name — it is resolved live.",
+        )
+    with period_column:
+        period_label = st.radio("Period", list(PERIODS), index=2, horizontal=True, label_visibility="collapsed")
+    with action_column:
+        capture = st.button("Capture to knowledge base", use_container_width=True,
+                            help="Index this symbol's live quote, fundamentals and headlines so the assistant can retrieve them.")
+
+    symbol = resolve_symbol(query) if query else None
+    if not symbol:
+        st.warning(f"No tradable instrument found for “{query}”. Try a ticker such as MSFT or a full company name.")
+        return
+    st.session_state.symbol = symbol
+
+    quote = get_quote(symbol)
+    if quote is None:
+        st.warning(f"No live quote available for {symbol} right now.")
         return
 
-    # ── Stock Price Cards ─────────────────────────────────────────────
-    # Display in responsive columns (up to 4 per row)
-    displayed_tickers = tickers[:8]
-    chunk_size = 4
-    for row_idx in range(0, len(displayed_tickers), chunk_size):
-        row_tickers = displayed_tickers[row_idx:row_idx + chunk_size]
-        cols = st.columns(len(row_tickers))
-        for col, t in zip(cols, row_tickers):
-            with col:
-                _render_stock_card(t)
+    if capture:
+        with st.spinner(f"Indexing live data for {symbol}…"):
+            written = ingest_market_feed(symbol)
+        st.success(f"Indexed {written} live passages for {symbol}. Ask the assistant about it.")
 
-    st.markdown("<div style='height: 12px;'></div>", unsafe_allow_html=True)
+    st.markdown(
+        f"<div style='margin: 10px 0 6px 0;'><span class='stock-symbol'>{symbol}</span> "
+        f"<span class='stock-company'>{html.escape(quote.name)}</span></div>",
+        unsafe_allow_html=True,
+    )
+    state = session(symbol)
+    chips([
+        ("live", f"{state['exchange'] or quote.exchange or 'market'} · {state['label']}"),
+        ("live", f"fetched {quote.as_of}"),
+    ])
+    _quote_header(quote)
 
-    # ── Chart & Intelligence Feed Section (Two Columns) ───────────────
-    st.markdown("""
-    <div class="terminal-panel-header" style="margin-top: 18px;">
-        <div class="terminal-panel-title">
-            <span style="color: #CDFF9A;">●</span>
-            <span>Technical Charting & Intelligence Wire</span>
-        </div>
-        <div class="terminal-panel-meta">
-            PLOT: CANDLESTICK + 20-SMA + VOLUME
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
+    history = get_history(symbol, period=PERIODS[period_label])
+    if history.empty:
+        hint("No candles returned for this period.")
+        return
 
-    col_chart, col_feed = st.columns([13, 9])
-
-    with col_chart:
-        # Chart Toolbar
-        c_sub1, c_sub2 = st.columns([2, 3])
-        with c_sub1:
-            chart_ticker = st.selectbox(
-                "Active Ticker",
-                tickers,
-                key="chart_ticker_select",
-                label_visibility="collapsed",
-            )
-        with c_sub2:
-            chart_period = st.select_slider(
-                "Time Period",
-                options=["1mo", "3mo", "6mo", "1y", "2y", "5y"],
-                value="3mo",
-                key="chart_period_slider",
-                label_visibility="collapsed",
+    chart_column, signal_column = st.columns([3, 1])
+    with chart_column:
+        _price_chart(symbol, history, quote.currency)
+    with signal_column:
+        st.markdown("**Technical read**")
+        computed = indicators.compute_all(history)
+        for name, result in computed.items():
+            if result["value"] is None:
+                continue
+            st.markdown(
+                f'<div class="leg-row"><span class="leg-name">{name.replace("_", " ")}</span>'
+                f'<span>{result["value"]}</span></div><div class="hint">{result["note"]}</div>',
+                unsafe_allow_html=True,
             )
 
-        if chart_ticker:
-            _render_candlestick_chart(chart_ticker, chart_period)
-
-    with col_feed:
-        # News Wire
-        n_col1, n_col2 = st.columns([2, 3])
-        with n_col1:
-            news_ticker = st.selectbox(
-                "News Wire Ticker",
-                tickers,
-                key="news_ticker_select",
-                label_visibility="collapsed",
-            )
-        with n_col2:
-            st.markdown(f"""
-            <div style="font-family: 'IBM Plex Mono', monospace; font-size: 0.72rem; color: #627C80; text-align: right; padding-top: 8px;">
-                FEED: LIVE // {news_ticker}
-            </div>
-            """, unsafe_allow_html=True)
-
-        if news_ticker:
-            _render_news_feed(news_ticker)
-
-
-def _render_stock_card(ticker: str):
-    """Render an institutional-grade stock quote tile."""
-    try:
-        data = get_stock_data_raw(ticker)
-        if not data:
-            st.markdown(f"""
-            <div class="stock-tile">
-                <div class="stock-symbol">{ticker}</div>
-                <div style="font-family: 'IBM Plex Mono', monospace; font-size: 0.75rem; color: #DF4100; margin-top: 6px;">
-                    FEED UNAVAILABLE
-                </div>
-            </div>
-            """, unsafe_allow_html=True)
-            return
-
-        price = data.get("current_price", 0)
-        change = data.get("change", 0)
-        change_pct = data.get("change_percent", 0)
-        currency = data.get("currency", "USD")
-        company = data.get("company_name", ticker)
-
-        is_positive = change >= 0
-        delta_class = "delta-positive" if is_positive else "delta-negative"
-        arrow = "▲" if is_positive else "▼"
-        sign = "+" if is_positive else ""
-
-        st.markdown(dedent(f"""
-        <div class="stock-tile">
-            <div class="stock-tile-top">
-                <div>
-                    <div class="stock-symbol">{ticker}</div>
-                    <div class="stock-company" title="{company}">{company}</div>
-                </div>
-                <div class="stock-delta-pill {delta_class}">
-                    <span>{arrow}</span>
-                    <span>{sign}{change_pct:.2f}%</span>
-                </div>
-            </div>
-            <div class="stock-price">{currency} {price:,.2f}</div>
-            <div style="display: flex; align-items: center; justify-content: space-between; font-family: 'IBM Plex Mono', monospace; font-size: 0.70rem; color: #627C80; margin-top: 4px;">
-                <span>Δ {sign}{change:,.2f}</span>
-                <span>VOL: {data.get('volume', 0):,}</span>
-            </div>
-        </div>
-        """), unsafe_allow_html=True)
-
-    except Exception as e:
-        st.markdown(dedent(f"""
-        <div class="stock-tile">
-            <div class="stock-symbol">{ticker}</div>
-            <div style="font-family: 'IBM Plex Mono', monospace; font-size: 0.72rem; color: #DF4100;">
-                ERR: {str(e)[:24]}
-            </div>
-        </div>
-        """), unsafe_allow_html=True)
-
-
-def _render_candlestick_chart(ticker: str, period: str = "3mo"):
-    """Render an institutional candlestick chart with Plotly."""
-    try:
-        data = get_historical_data(ticker, period=period)
-        if data is None or data.empty:
-            st.warning(f"No historical chart data available for {ticker}")
-            return
-
-        fig = go.Figure()
-
-        # Candlestick: #CDFF9A for up, #DF4100 for down
-        fig.add_trace(go.Candlestick(
-            x=data.index,
-            open=data["Open"],
-            high=data["High"],
-            low=data["Low"],
-            close=data["Close"],
-            increasing=dict(
-                line=dict(color="#CDFF9A", width=1.2),
-                fillcolor="rgba(205, 255, 154, 0.25)",
-            ),
-            decreasing=dict(
-                line=dict(color="#DF4100", width=1.2),
-                fillcolor="rgba(223, 65, 0, 0.25)",
-            ),
-            name="Price",
-        ))
-
-        # 20-day Simple Moving Average
-        sma20 = data["Close"].rolling(window=20).mean()
-        fig.add_trace(go.Scatter(
-            x=data.index,
-            y=sma20,
-            mode="lines",
-            line=dict(color="rgba(205, 255, 154, 0.85)", width=1.5),
-            name="SMA 20",
-        ))
-
-        # Volume bars overlaid on y2
-        volume_colors = [
-            "rgba(205, 255, 154, 0.22)" if c >= o else "rgba(223, 65, 0, 0.22)"
-            for c, o in zip(data["Close"], data["Open"])
-        ]
-        fig.add_trace(go.Bar(
-            x=data.index,
-            y=data["Volume"],
-            marker_color=volume_colors,
-            name="Volume",
-            yaxis="y2",
-            opacity=0.45,
-        ))
-
-        fig.update_layout(
-            template="plotly_dark",
-            paper_bgcolor="rgba(0,0,0,0)",
-            plot_bgcolor="rgba(19, 36, 39, 0.35)",
-            font=dict(family="IBM Plex Mono, monospace", color="#9EB5B7", size=11),
-            height=460,
-            hovermode="x unified",
-            margin=dict(l=40, r=40, t=20, b=30),
-            xaxis=dict(
-                gridcolor="rgba(205, 255, 154, 0.05)",
-                linecolor="rgba(205, 255, 154, 0.12)",
-                rangeslider=dict(visible=False),
-                showspikes=True,
-                spikemode="across",
-                spikesnap="cursor",
-                spikedash="solid",
-                spikethickness=1,
-                spikecolor="rgba(205, 255, 154, 0.25)",
-            ),
-            yaxis=dict(
-                title="",
-                gridcolor="rgba(205, 255, 154, 0.05)",
-                linecolor="rgba(205, 255, 154, 0.12)",
-                side="right",
-                tickformat=",.2f",
-                showspikes=True,
-                spikecolor="rgba(205, 255, 154, 0.25)",
-            ),
-            yaxis2=dict(
-                title="",
-                overlaying="y",
-                side="left",
-                showgrid=False,
-                showticklabels=False,
-                range=[0, data["Volume"].max() * 4],
-            ),
-            legend=dict(
-                orientation="h",
-                yanchor="bottom",
-                y=1.02,
-                xanchor="right",
-                x=1,
-                bgcolor="rgba(0,0,0,0)",
-                font=dict(size=10),
-            ),
-        )
-
-        st.plotly_chart(fig, use_container_width=True)
-
-    except Exception as e:
-        st.error(f"Error rendering chart: {str(e)[:100]}")
-
-
-def _render_news_feed(ticker: str):
-    """Render the financial intelligence wire for a ticker."""
-    try:
-        articles = get_news_for_sentiment(ticker)
-
-        if not articles:
-            st.markdown(f"""
-            <div style="padding: 20px; text-align: center; font-family: 'IBM Plex Mono', monospace; font-size: 0.8rem; color: #627C80; background: rgba(32, 61, 67, 0.2); border: 1px dashed rgba(205, 255, 154, 0.1); border-radius: 8px;">
-                NO RECENT INTELLIGENCE LOGS FOR {ticker}<br>
-                <span style="font-size: 0.72rem; color: #435E62;">VERIFY NEWS_API_KEY IN .ENV</span>
-            </div>
-            """, unsafe_allow_html=True)
-            return
-
-        # Render news feed wire
-        st.markdown('<div style="max-height: 460px; overflow-y: auto; padding-right: 4px;">', unsafe_allow_html=True)
-        for article in articles[:6]:
-            title = article.get("title", "No headline")
-            source = article.get("source", "MARKET WIRE")
-            date = article.get("published_at", "")
-            url = article.get("url", "")
-
-            # Truncate or format date
-            date_str = date[:16].replace("T", " ") if "T" in date else date[:16]
-
-            link_html = f'<a href="{url}" target="_blank" rel="noopener noreferrer">WIRE DETAILS ↗</a>' if url else ''
-
-            st.markdown(dedent(f"""
-            <div class="intel-feed-item">
-                <div class="news-title">{title}</div>
-                <div class="news-meta">
-                    <span style="color: #CDFF9A; font-weight: 600;">{source.upper()}</span>
-                    <span>•</span>
-                    <span>{date_str}</span>
-                    {'<span>•</span> ' + link_html if link_html else ''}
-                </div>
-            </div>
-            """), unsafe_allow_html=True)
-        st.markdown('</div>', unsafe_allow_html=True)
-
-    except Exception as e:
-        st.error(f"Error loading news feed: {str(e)[:100]}")
+    news_column, movers_column = st.columns([3, 2])
+    with news_column:
+        st.markdown("**Live headlines**")
+        _news_feed(symbol)
+    with movers_column:
+        st.markdown("**Market movers**")
+        _movers()
